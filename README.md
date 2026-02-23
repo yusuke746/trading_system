@@ -1,0 +1,2 @@
+# fxAI
+EA auto trade
