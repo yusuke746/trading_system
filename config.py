@@ -10,7 +10,7 @@ SYSTEM_CONFIG = {
     "min_free_margin":      500.0,
 
     # ── リスク管理 ───────────────────────────────
-    "risk_percent":         1.0,
+    "risk_percent":         2.0,
     # GOLD 5200ドル水準でATR15m≈ 8〜15ドル。SL=ATR×2.0で15〜20ドルの雑音耐性を確保
     "atr_sl_multiplier":    2.0,   # 1.5 → 2.0
     "atr_tp_multiplier":    3.0,   # 2.5 → 3.0（RR=1.5維持）
@@ -21,7 +21,9 @@ SYSTEM_CONFIG = {
     "atr_volatility_max":   30.0,  # 30ドル超: 指標・重要イベント直後等
     "atr_volatility_min":   3.0,   # 3ドル未満: 値動きなし（スプレッド費用対効果悪化）
     # 追加リスク管理（risk_manager.py）
-    "max_daily_loss_usd":       -200.0,  # 1日の確定損失上限（超過で自動停止）
+    # 1日の確定損失上限: 口座残高に対するパーセンテージ（負値）
+    # 例: -5.0 → 残高の5%を超えて負けたら自動停止（risk_percent=1.0%なら約5負け相当）
+    "max_daily_loss_percent":   -10.0,    # 1日の確定損失上限（残高比率%）
     "max_consecutive_losses":   3,       # 連続SL被弾で自動停止
     "gap_block_threshold_usd":  15.0,    # 週明けギャップブロック閾値（ドル）
 

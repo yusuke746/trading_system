@@ -24,10 +24,22 @@ from database import get_connection
 logger = logging.getLogger(__name__)
 
 # ── 設定値 ──────────────────────────────────────────────────
-MAX_DAILY_LOSS_USD    = SYSTEM_CONFIG.get("max_daily_loss_usd",      -200.0)
+MAX_DAILY_LOSS_PCT    = SYSTEM_CONFIG.get("max_daily_loss_percent",  -5.0)  # 残高比率%
 MAX_CONSECUTIVE_LOSS  = SYSTEM_CONFIG.get("max_consecutive_losses",   3)
 GAP_BLOCK_THRESHOLD   = SYSTEM_CONFIG.get("gap_block_threshold_usd",  15.0)
 SYMBOL                = SYSTEM_CONFIG.get("symbol", "XAUUSD")
+
+
+def _get_balance() -> float:
+    """MT5から口座残高を取得する。取得失敗時は10,000ドルをフォールバックとして使用"""
+    if MT5_AVAILABLE:
+        try:
+            acc = mt5.account_info()
+            if acc and acc.balance > 0:
+                return acc.balance
+        except Exception:
+            pass
+    return 10_000.0
 
 
 # ────────────────────────────────────────────────────────────
@@ -62,12 +74,16 @@ def check_daily_loss_limit() -> dict:
         daily_pnl = float(rows["total_pnl"])
     except Exception as exc:
         logger.error("check_daily_loss_limit DB error: %s", exc)
-        # DBエラーは通過させる（取引を止めない）
         return {"blocked": False, "daily_pnl_usd": 0.0, "reason": "db_error"}
 
-    if daily_pnl < MAX_DAILY_LOSS_USD:
+    # 残高ベースで上限額を動的計算
+    balance   = _get_balance()
+    limit_usd = balance * (MAX_DAILY_LOSS_PCT / 100.0)   # 例: 10000 × (-5/100) = -500
+
+    if daily_pnl < limit_usd:
         reason = (
-            f"当日損失 {daily_pnl:.1f} USD が上限 {MAX_DAILY_LOSS_USD:.1f} USD を超過"
+            f"当日損失 {daily_pnl:.1f} USD が上限 {limit_usd:.1f} USD"
+            f"（残高 {balance:.0f} USD × {MAX_DAILY_LOSS_PCT:.1f}%）を超過"
         )
         logger.warning("RISK: %s", reason)
         return {"blocked": True, "daily_pnl_usd": daily_pnl, "reason": reason}
