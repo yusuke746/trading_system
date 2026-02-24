@@ -194,7 +194,7 @@ def _get_trading_stats(recent_n: int = 20) -> dict:
     outcomes = [r["outcome"] for r in rows]
     pnls     = [float(r["pnl_usd"]) for r in rows]
 
-    wins     = sum(1 for o in outcomes if o in ("tp_hit", "partial_close", "manual_close"))
+    wins     = sum(1 for o in outcomes if o in ("tp_hit", "partial_tp", "trailing_sl", "manual"))
     win_rate = wins / len(outcomes)
     avg_pnl  = sum(pnls) / len(pnls)
 

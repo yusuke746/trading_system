@@ -22,23 +22,17 @@ class BatchProcessor:
         self._wait_buffer      = wait_buffer
         self._revaluator       = revaluator
         self._position_manager = position_manager
-        # structureシグナルのインメモリバッファ（コンテキスト用）
-        self._signal_buffer: list[dict] = []
 
     def process(self, batch: list[dict]) -> None:
         """バッチを種別分類してパイプラインを実行する"""
         entry_triggers = [s for s in batch if s.get("signal_type") == "entry_trigger"]
         structures     = [s for s in batch if s.get("signal_type") == "structure"]
 
-        # structureシグナルをバッファに追加
+        # structureシグナルをDBに記録
         for s in structures:
             sig_id = log_signal(s)
             s["_db_id"] = sig_id
-            self._signal_buffer.append(s)
-            # 最大500件に制限
-            if len(self._signal_buffer) > 500:
-                self._signal_buffer = self._signal_buffer[-500:]
-            logger.debug("🔵 structure蓄積: event=%s", s.get("event"))
+            logger.debug("🔵 structure記録: event=%s", s.get("event"))
 
         # structureがあったらwaitバッファを即再評価
         if structures and self._revaluator:
@@ -85,7 +79,7 @@ class BatchProcessor:
         )
 
         decision = ai_result.get("decision")
-        logger.info("🤖 처리: decision=%s confidence=%.2f ev_score=%.2f",
+        logger.info("🤖 AI判定: decision=%s confidence=%.2f ev_score=%.2f",
                     decision,
                     ai_result.get("confidence", 0),
                     ai_result.get("ev_score", 0))
