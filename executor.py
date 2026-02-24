@@ -17,6 +17,7 @@ from market_hours import full_market_check
 from news_filter import check_news_filter
 from logger_module import log_execution, log_event
 import risk_manager
+import param_optimizer
 
 logger = logging.getLogger(__name__)
 
@@ -118,10 +119,16 @@ def build_order_params(trigger: dict, ai_result: dict,
                         ai_decision_id: int = None) -> dict:
     """
     ATRベースでSL/TP・ロットサイズを計算して注文パラメータを返す。
+    ATR乗数は param_optimizer.get_live_params() により動的に調整される。
     """
     symbol    = trigger.get("symbol", SYMBOL)
     direction = trigger.get("direction", "buy")
     price     = trigger.get("price", 0.0)
+
+    # 動的パラメータ取得（市場環境・成績に基づくATR乗数調整）
+    live_params = param_optimizer.get_live_params()
+    dyn_sl_mult = live_params.get("atr_sl_multiplier", ATR_SL_MULT)
+    dyn_tp_mult = live_params.get("atr_tp_multiplier", ATR_TP_MULT)
 
     # _get_atr15m は MT5から取得したATRをdollar価格単位で返す
     # 例: GOLD 15m ATR = 3.5（価格が平均3.5ドル動く）
@@ -145,7 +152,7 @@ def build_order_params(trigger: dict, ai_result: dict,
 
     # SL距離計算（dollar価格単位）
     # MIN_SL_PIPS / MAX_SL_PIPS もdollar価格単位として流用（5.0〜50.0ドル上限）
-    sl_dollar = round(atr_dollar * ATR_SL_MULT, 3)
+    sl_dollar = round(atr_dollar * dyn_sl_mult, 3)
     sl_dollar = max(MIN_SL_PIPS, min(MAX_SL_PIPS, sl_dollar))
 
     # ロットサイズ計算
@@ -164,10 +171,10 @@ def build_order_params(trigger: dict, ai_result: dict,
     # 価格計算（ATRはdollar価格単位なのでそのまま引き算）
     if direction == "buy":
         sl_price = round(price - sl_dollar, 3)
-        tp_price = round(price + atr_dollar * ATR_TP_MULT, 3)
+        tp_price = round(price + atr_dollar * dyn_tp_mult, 3)
     else:
         sl_price = round(price + sl_dollar, 3)
-        tp_price = round(price - atr_dollar * ATR_TP_MULT, 3)
+        tp_price = round(price - atr_dollar * dyn_tp_mult, 3)
 
     order_type    = ai_result.get("order_type", "market")
     limit_price   = ai_result.get("limit_price")
@@ -183,6 +190,8 @@ def build_order_params(trigger: dict, ai_result: dict,
         "tp_price":        tp_price,
         "sl_dollar":       sl_dollar,    # dollar価格単位（旧sl_pips）
         "atr_dollar":      atr_dollar,   # dollar価格単位（旧atr_pips）
+        "atr_sl_mult":     dyn_sl_mult,  # 動的調整後のSL乗数（記録用）
+        "atr_tp_mult":     dyn_tp_mult,  # 動的調整後のTP乗数（記録用）
         "limit_expiry":    limit_expiry,
         "ai_decision_id":  ai_decision_id,
     }

@@ -301,3 +301,68 @@ def api_stats():
         return jsonify(result)
     finally:
         conn.close()
+
+
+@dashboard_bp.route("/api/optimizer", methods=["GET"])
+def api_optimizer():
+    """動的パラメータ最適化の現在値と履歴を返す"""
+    import param_optimizer
+    from flask import request
+    n = int(request.args.get("n", 10))
+    latest  = param_optimizer.get_latest_from_db()
+    history = param_optimizer.get_history(n=n)
+    return jsonify({"latest": latest, "history": history})
+
+
+@dashboard_bp.route("/api/backtest", methods=["GET"])
+def api_backtest():
+    """
+    MT5 または DB のデータを使ってバックテストを実行し、結果を返す。
+    パラメータ:
+      bars     : 取得バー数（デフォルト 1000）
+      sl_mult  : ATR SL乗数（デフォルト config 値）
+      tp_mult  : ATR TP乗数（デフォルト config 値）
+      strategy : breakout | rsi（デフォルト breakout）
+      grid     : 1 を指定するとグリッドサーチ結果を返す
+    """
+    from flask import request
+    from backtester import BacktestEngine, load_mt5_data, grid_search
+    from backtester import atr_breakout_signal, rsi_reversal_signal
+    from config import SYSTEM_CONFIG
+
+    bars     = int(request.args.get("bars", 1000))
+    sl_mult  = request.args.get("sl_mult",  type=float)
+    tp_mult  = request.args.get("tp_mult",  type=float)
+    strategy = request.args.get("strategy", "breakout")
+    do_grid  = request.args.get("grid", "0") == "1"
+
+    signal_func = rsi_reversal_signal if strategy == "rsi" else atr_breakout_signal
+
+    try:
+        df = load_mt5_data(SYSTEM_CONFIG["symbol"], "M15", bars)
+    except Exception as e:
+        return jsonify({"error": f"MT5データ取得失敗: {e}"}), 503
+
+    if do_grid:
+        results = grid_search(df, signal_func=signal_func)
+        return jsonify({"grid_results": results[:20]})
+
+    params = {}
+    if sl_mult is not None:
+        params["atr_sl_multiplier"] = sl_mult
+    if tp_mult is not None:
+        params["atr_tp_multiplier"] = tp_mult
+
+    engine = BacktestEngine(df, params)
+    result = engine.run(signal_func)
+    return jsonify({
+        "n_trades":         result.n_trades,
+        "win_rate":         round(result.win_rate, 3),
+        "total_pnl":        round(result.total_pnl, 2),
+        "profit_factor":    result.profit_factor,
+        "max_drawdown":     result.max_drawdown,
+        "max_drawdown_pct": result.max_drawdown_pct,
+        "sharpe_ratio":     result.sharpe_ratio,
+        "params":           result.params,
+        "bars":             bars,
+    })

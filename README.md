@@ -131,10 +131,133 @@ AI活用度        ████████████████      80点
 このシステムは **「まず動かして実績を積む」フェーズとして非常に完成度が高い** です。  
 特にリスク管理の多層設計と、AIを使った振り返り分析の仕組みは、手動トレードでは実現しにくい優位性です。
 
-次のステップとして以下を検討すると、さらに実戦力が上がります：
-1. **ユニットテストの追加**（特に `risk_manager.py`・`executor.py`）
-2. **バックテスト機能の実装**（過去データでの戦略検証）
-3. **パラメータの動的最適化**（ATR乗数などを市場環境に合わせて自動調整）
+以下の3機能が v2.1 で追加されました：
+1. ✅ **ユニットテストの追加**（`risk_manager.py`・`executor.py` で49テスト）
+2. ✅ **バックテスト機能の実装**（`backtester.py`）
+3. ✅ **パラメータの動的最適化**（`param_optimizer.py`）
+
+---
+
+## 🧪 ユニットテスト
+
+### 実行方法
+
+```bash
+cd trading_system
+python -m pytest tests/ -v
+```
+
+### テスト一覧（49件）
+
+| ファイル | テストクラス | 件数 | 内容 |
+|---|---|---|---|
+| `tests/test_risk_manager.py` | TestCheckDailyLossLimit | 7件 | 当日損失上限チェック（正常・超過・DB誤り） |
+| `tests/test_risk_manager.py` | TestCheckConsecutiveLosses | 7件 | 連続損失チェック（各パターン） |
+| `tests/test_risk_manager.py` | TestCheckGapRisk | 5件 | 週明けギャップチェック（月曜・他曜日・MT5なし） |
+| `tests/test_risk_manager.py` | TestRunAllRiskChecks | 5件 | 統合チェック（各ブロック条件・優先順位） |
+| `tests/test_executor.py` | TestBuildOrderParams | 18件 | SL/TP計算・ロット計算・ATRフィルター・指値注文 |
+| `tests/test_executor.py` | TestPreExecutionCheck | 6件 | 執行前チェック順序・各ブロック条件 |
+
+---
+
+## 📈 バックテスト（backtester.py）
+
+過去の OHLCV データに対して ATR ベースの戦略をシミュレートし、パラメータセットの損益・勝率・最大ドローダウンなどを計算します。
+
+### CLIの使い方
+
+```bash
+# CSVファイルを使ったバックテスト（列: time,open,high,low,close,volume）
+python backtester.py --csv data.csv
+
+# ATR SL/TP 乗数を指定
+python backtester.py --csv data.csv --sl-mult 2.0 --tp-mult 3.0
+
+# RSI 逆張り戦略でテスト
+python backtester.py --csv data.csv --strategy rsi
+
+# グリッドサーチ（SL/TP乗数の全組み合わせを比較）
+python backtester.py --csv data.csv --grid
+
+# MT5から直接データを取得（要MT5接続）
+python backtester.py --mt5 --bars 2000
+```
+
+### 出力例
+
+```
+==================================================
+  バックテスト結果
+==================================================
+  取引数         : 42
+  勝率           : 61.9%
+  総損益         : $+1,234.56
+  プロフィットF  : 1.843
+  最大ドローダウン: $380.00 (3.8%)
+  シャープレシオ : 0.421
+--------------------------------------------------
+  SL乗数         : 2.0
+  TP乗数         : 3.0
+==================================================
+```
+
+### ライブラリとしての使い方
+
+```python
+from backtester import BacktestEngine, load_csv, grid_search
+
+df     = load_csv("data.csv")
+engine = BacktestEngine(df, {"atr_sl_multiplier": 2.0, "atr_tp_multiplier": 3.0})
+result = engine.run()
+print(result.summary())
+
+# グリッドサーチ
+results = grid_search(df)
+print(f"最良パラメータ: SL×{results[0]['sl_mult']}  TP×{results[0]['tp_mult']}")
+```
+
+### ダッシュボード API
+
+```
+GET /dashboard/api/backtest?bars=1000&sl_mult=2.0&tp_mult=3.0&strategy=breakout
+GET /dashboard/api/backtest?grid=1
+```
+
+---
+
+## ⚙️ パラメータ動的最適化（param_optimizer.py）
+
+市場環境（ATR パーセンタイル・トレンド強度）と最近のトレード成績に基づいて、ATR 乗数を自動調整します。  
+`executor.py` の注文パラメータ計算に自動的に統合されており、5分キャッシュで効率よく動作します。
+
+### 調整ルール
+
+| 条件 | 調整内容 |
+|---|---|
+| ATR%ile ≥ 80（高ボラ） | SL乗数 ×1.2（ノイズで狩られないよう拡大） |
+| ATR%ile ≤ 20（低ボラ） | SL乗数 ×0.8（スプレッド節約） |
+| 直近勝率 < 40% | SL乗数 ×1.15（SL設定が狭すぎる可能性） |
+| 直近勝率 > 65% | TP乗数 ×1.1（さらなる利益伸ばしを試みる） |
+| 強トレンド（strong_bull/bear） | TP乗数 ×1.2（トレンドフォロー） |
+| レンジ相場 | TP乗数 ×0.85（早めの利確） |
+
+### ダッシュボード API
+
+```
+GET /dashboard/api/optimizer           # 最新の調整値と履歴10件
+GET /dashboard/api/optimizer?n=30      # 履歴30件
+```
+
+### 調整履歴の確認（DB）
+
+全ての調整結果は `param_history` テーブルに記録されます：
+
+```sql
+SELECT updated_at, atr_sl_mult, atr_tp_mult, regime, win_rate, reason
+FROM   param_history
+ORDER  BY id DESC
+LIMIT  10;
+```
 
 ---
 
@@ -166,7 +289,7 @@ trading_system/
 ├── context_builder.py     # AIコンテキスト組み立て（MT5指標含む）
 ├── prompt_builder.py      # GPT-4o-miniプロンプト生成
 ├── ai_judge.py            # GPT-4o-mini API呼び出し
-├── executor.py            # MT5注文執行モジュール
+├── executor.py            # MT5注文執行モジュール（動的パラメータ統合）
 ├── market_hours.py        # 市場クローズ判定（XMサーバータイム）
 ├── news_filter.py         # ニュースフィルター（v2追加）
 ├── position_manager.py    # 段階的利確・BE・トレーリング（v2追加）
@@ -177,6 +300,12 @@ trading_system/
 ├── notifier.py            # LINE通知
 ├── dashboard.py           # ブラウザダッシュボード（Blueprint）
 ├── logger_module.py       # ログ書き込み（SQLite連携）
+├── backtester.py          # バックテストエンジン（v2.1追加）
+├── param_optimizer.py     # ATR乗数動的最適化（v2.1追加）
+├── tests/
+│   ├── __init__.py
+│   ├── test_risk_manager.py  # risk_manager.py ユニットテスト（v2.1追加）
+│   └── test_executor.py      # executor.py ユニットテスト（v2.1追加）
 ├── requirements.txt       # Python依存ライブラリ
 ├── .env.example           # 環境変数テンプレート
 ├── .gitignore             # Git除外設定

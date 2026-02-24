@@ -121,6 +121,19 @@ def init_db() -> None:
             level       TEXT DEFAULT 'INFO'
         )""")
 
+        # ── param_history ─────────────────────────────────────
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS param_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            updated_at      TEXT NOT NULL,
+            atr_sl_mult     REAL NOT NULL,
+            atr_tp_mult     REAL NOT NULL,
+            regime          TEXT,
+            win_rate        REAL,
+            consecutive_losses INTEGER,
+            reason          TEXT
+        )""")
+
         conn.commit()
         logger.info("✅ DB初期化完了: %s", DB_PATH)
     finally:
