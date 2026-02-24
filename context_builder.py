@@ -25,15 +25,43 @@ SYMBOL       = SYSTEM_CONFIG["symbol"]
 
 # ─────────────────────────── MT5指標取得 ──────────────────
 
+def _ensure_symbol_selected(symbol: str) -> bool:
+    """シンボルをMarketWatchに追加し、データが利用可能か確認する"""
+    if not MT5_AVAILABLE:
+        return False
+    # terminal_info で接続確認
+    info = mt5.terminal_info()
+    if info is None or not getattr(info, "connected", False):
+        logger.error("MT5未接続: terminal_info=%s, last_error=%s", info, mt5.last_error())
+        return False
+    # MarketWatchにシンボルを追加（未選択でもcopy_rates_from_posがNullを返す原因になる）
+    if not mt5.symbol_select(symbol, True):
+        logger.error("symbol_select失敗: symbol=%s, last_error=%s", symbol, mt5.last_error())
+        return False
+    sym_info = mt5.symbol_info(symbol)
+    if sym_info is None:
+        logger.error("symbol_info取得失敗: symbol=%s, last_error=%s", symbol, mt5.last_error())
+        return False
+    return True
+
+
 def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
                          smas: list, extra: bool = False) -> dict:
     """指定時間足のテクニカル指標を返す"""
     if not MT5_AVAILABLE:
         return {"error": "MT5未インストール"}
+    if not _ensure_symbol_selected(symbol):
+        return {"error": "MT5接続/シンボル選択失敗"}
     try:
         rates = mt5.copy_rates_from_pos(symbol, tf_mt5, 0, 300)
-        if rates is None or len(rates) < 50:
-            return {"error": "データ不足"}
+        if rates is None:
+            err = mt5.last_error()
+            logger.error("copy_rates_from_pos(%s %s) → None: last_error=%s", symbol, tf_label, err)
+            return {"error": f"取得失敗({err})"}
+        if len(rates) < 50:
+            logger.warning("copy_rates_from_pos(%s %s) → バー数不足: %d本 (最低50本必要)",
+                           symbol, tf_label, len(rates))
+            return {"error": f"データ不足({len(rates)}本)"}
         df = pd.DataFrame(rates)
         df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
         df.set_index("time", inplace=True)
@@ -135,9 +163,15 @@ def _get_atr_percentile(symbol: str, tf_mt5: int, lookback: int = 100) -> int:
     """
     if not MT5_AVAILABLE:
         return 50  # テスト用デフォルト
+    if not _ensure_symbol_selected(symbol):
+        return 50
     try:
         rates = mt5.copy_rates_from_pos(symbol, tf_mt5, 0, lookback + 20)
-        if rates is None or len(rates) < lookback:
+        if rates is None:
+            logger.error("_get_atr_percentile copy_rates失敗: last_error=%s", mt5.last_error())
+            return 50
+        if len(rates) < lookback:
+            logger.warning("_get_atr_percentile バー数不足: %d本", len(rates))
             return 50
         df = pd.DataFrame(rates)
         prev_close = df["close"].shift(1)
