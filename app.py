@@ -48,7 +48,7 @@ from dashboard         import dashboard_bp
 from logger_module     import log_event
 from config            import SYSTEM_CONFIG
 
-FLASK_PORT = int(os.getenv("FLASK_PORT", 5000))
+FLASK_PORT = int(os.getenv("FLASK_PORT", 80))
 
 # ── グローバルコンポーネント ───────────────────────────────────
 app             = Flask(__name__)
