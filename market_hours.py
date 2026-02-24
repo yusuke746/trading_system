@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 DAILY_BREAK_START_H = SYSTEM_CONFIG["daily_break_start_h"]   # 23
 DAILY_BREAK_START_M = SYSTEM_CONFIG["daily_break_start_m"]   # 45
 DAILY_BREAK_END_H   = SYSTEM_CONFIG["daily_break_end_h"]     # 1
-LIMIT_CANCEL_WARN_M = SYSTEM_CONFIG["limit_cancel_warn_m"]   # 30
+LIMIT_CANCEL_H      = SYSTEM_CONFIG["limit_cancel_start_h"]  # 23
+LIMIT_CANCEL_M      = SYSTEM_CONFIG["limit_cancel_start_m"]  # 30
 
 
 def _utc_now() -> datetime:
@@ -65,9 +66,44 @@ def is_daily_break() -> bool:
 def is_limit_cancel_zone() -> bool:
     """23:30 UTC 以降、未約定指値の自動キャンセル警戒ゾーン"""
     now = _utc_now()
-    warn_start = time(DAILY_BREAK_START_H,
-                      DAILY_BREAK_START_M - LIMIT_CANCEL_WARN_M)
-    return now.time() >= warn_start
+    return now.time() >= time(LIMIT_CANCEL_H, LIMIT_CANCEL_M)
+
+
+def get_current_session() -> dict:
+    """
+    現在の市場セッションを UTC 時刻で判定して返す。
+
+    セッション区分（UTC基準）:
+        Asia          00:00 〜 07:00   低ボラ・レンジ傾向
+        London        07:00 〜 12:00   ボラ上昇・トレンド発生多
+        London_NY     12:00 〜 16:00   最高ボラ・GOLDの主戦場
+        NY            16:00 〜 21:00   ボラ中・NY引けに向け縮小
+        Off_hours     21:00 〜 00:00   ボラ低下・デイリーブレイク接近
+
+    Returns:
+        {
+            "session":        str,   # "Asia" | "London" | "London_NY" | "NY" | "Off_hours"
+            "volatility":     str,   # "low" | "medium" | "high" | "very_high"
+            "description":    str,
+        }
+    """
+    now_h = _utc_now().hour
+
+    if 0 <= now_h < 7:
+        return {"session": "Asia",      "volatility": "low",
+                "description": "アジア時間（低ボラ・レンジ）"}
+    if 7 <= now_h < 12:
+        return {"session": "London",    "volatility": "high",
+                "description": "ロンドン時間（ボラ上昇・トレンド発生多）"}
+    if 12 <= now_h < 16:
+        return {"session": "London_NY", "volatility": "very_high",
+                "description": "ロンドン・NYオーバーラップ（GOLD最高ボラ帯）"}
+    if 16 <= now_h < 21:
+        return {"session": "NY",        "volatility": "medium",
+                "description": "NY時間（ボラ中・引けに向け縮小）"}
+    # 21:00〜24:00
+    return {"session": "Off_hours",     "volatility": "low",
+            "description": "クローズ接近（低ボラ・デイリーブレイク前）"}
 
 
 def is_market_open(symbol: str = "XAUUSD") -> dict:

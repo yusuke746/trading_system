@@ -68,6 +68,17 @@ statistical_context が提供された場合は、以下のルールを適用し
 ### RSI Zスコア（rsi_zscore_5m）
 - > 2.0 → 買われすぎ圏。buy 方向の approve には risk_note を必ず付記
 - < -2.0 → 売られすぎ圏。sell 方向の approve には risk_note を必ず付記
+
+### 取引セッション（session_info）
+以下の session 値ごとに期待値を調整してください。
+
+| session     | volatility | ev_score 調整 | 備考 |
+|-------------|-----------|-------------|------|
+| Asia        | low        | -0.10       | スプレッド費用対効果悪化。強いセットアップのみ承認 |
+| London      | high       | +0.05       | トレンド発生多。方向一致なら積極的に承認可 |
+| London_NY   | very_high  | +0.10       | GOLDの主戦場。高精度エントリー最大適用期間 |
+| NY          | medium     | 0.00        | 通常判断。NY引けに近づくにつれ慎重に |
+| Off_hours   | low        | -0.15       | デイリーブレイク接近。wait / reject 優先 |
 """
 
 
@@ -137,8 +148,21 @@ def build_prompt(context: dict) -> list[dict]:
     if stat_ctx:
         stat_text = json.dumps(stat_ctx, ensure_ascii=False, indent=2)
 
+    # ── セクション5: セッション情報 ──────────────────
+    session_info = stat_ctx.get("session_info", {}) if stat_ctx else {}
+    session_text = "（不明）"
+    if session_info:
+        session_text = (
+            f"{session_info.get('session', '?')} "
+            f"（ボラ={session_info.get('volatility', '?')}）"
+            f" {session_info.get('description', '')}"
+        )
+
     user_content = f"""## 受信エントリートリガー
 {trigger_text}
+
+## 現在の取引セッション
+{session_text}
 
 ## 大局構造（12時間以内のnew_zone_confirmed）
 {macro_text}

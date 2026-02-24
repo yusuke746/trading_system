@@ -15,6 +15,7 @@ except ImportError:
 
 from database import get_connection
 from config import SYSTEM_CONFIG
+from market_hours import get_current_session
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +332,7 @@ def build_context_for_ai(entry_signals: list) -> dict:
         "statistical_context": {
             "market_regime":  _get_market_regime(symbol),
             "trading_stats":  _get_trading_stats(recent_n=20),
+            "session_info":   get_current_session(),
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

@@ -124,6 +124,19 @@ def init_db() -> None:
         # ── param_history ─────────────────────────────────────
         c.execute("""
         CREATE TABLE IF NOT EXISTS param_history (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            updated_at          TEXT    NOT NULL,
+            atr_sl_mult         REAL,
+            atr_tp_mult         REAL,
+            regime              TEXT,
+            win_rate            REAL,
+            consecutive_losses  INTEGER,
+            reason              TEXT
+        )""")
+
+        # ── param_history ─────────────────────────────────────
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS param_history (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             updated_at      TEXT NOT NULL,
             atr_sl_mult     REAL NOT NULL,
