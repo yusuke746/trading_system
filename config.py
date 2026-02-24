@@ -81,6 +81,9 @@ SYSTEM_CONFIG = {
     # 未約定指値の自動キャンセル開始時刻（仕様: 23:30から）
     "limit_cancel_start_h": 23,
     "limit_cancel_start_m": 30,
+    # デイリーブレイク前の警告マージン（分）
+    # daily_break_start_m(45) - limit_cancel_warn_m(15) = 23:30 からキャンセル警戒
+    "limit_cancel_warn_m":  15,
 }
 
 # ── ATRベースのSL/TP計算定数 ───────────────────────
