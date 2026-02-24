@@ -44,11 +44,23 @@ def init_mt5() -> bool:
         return False
 
     login, password, server = _get_mt5_credentials()
+    symbol = SYSTEM_CONFIG["symbol"]
 
     for attempt in range(1, RECONNECT_RETRIES + 1):
         try:
             if mt5.initialize(login=login, password=password, server=server):
                 logger.info("✅ MT5接続成功 (試行%d)", attempt)
+                # 接続直後はターミナルが内部準備中のことがある。少し待ってからシンボルを購読
+                time.sleep(2)
+                for sel_attempt in range(1, 4):
+                    if mt5.symbol_select(symbol, True):
+                        logger.info("✅ symbol_select成功: %s", symbol)
+                        break
+                    logger.warning("symbol_select試行%d/3失敗: %s, last_error=%s",
+                                   sel_attempt, symbol, mt5.last_error())
+                    time.sleep(2)
+                else:
+                    logger.error("❌ symbol_select最終失敗: %s — データ取得が失敗し続ける可能性あり", symbol)
                 return True
         except Exception as e:
             logger.error("MT5 initialize例外: %s", e)

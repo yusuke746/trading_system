@@ -5,7 +5,7 @@ AI Trading System v2.0
 
 SYSTEM_CONFIG = {
     # ── 取引設定 ────────────────────────────────
-    "symbol":               "XAUUSD",
+    "symbol":               "GOLD",   # XMTrading のシンボル名（XAUUSD ではない）
     "max_positions":        1,
     "min_free_margin":      500.0,
 

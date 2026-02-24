@@ -196,7 +196,7 @@ def load_csv(path: str) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def load_mt5_data(symbol: str = "XAUUSD",
+def load_mt5_data(symbol: str = "GOLD",
                   timeframe: str = "M15",
                   bars: int = 2000) -> pd.DataFrame:
     """
@@ -557,7 +557,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     source.add_argument("--mt5",  action="store_true",
                         help="MT5から直接データを取得")
 
-    p.add_argument("--symbol",   default="XAUUSD", help="取引シンボル（MT5使用時）")
+    p.add_argument("--symbol",   default="GOLD",   help="取引シンボル（MT5使用時、XMTrading=GOLD）")
     p.add_argument("--tf",       default="M15",    help="時間足（M1/M5/M15/M30/H1/H4/D1）")
     p.add_argument("--bars",     type=int, default=2000, help="取得バー数（MT5使用時）")
     p.add_argument("--sl-mult",  type=float, default=None,

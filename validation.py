@@ -18,12 +18,12 @@ VALID_EVENTS = {
 }
 VALID_DIRECTIONS = {"buy", "sell"}
 
-# GOLD銘柄の別名マッピング
+# GOLD銘柄の別名マッピング（XMTrading のシンボル名は GOLD）
 SYMBOL_MAP = {
-    "GOLD":   "XAUUSD",
-    "XAUUSD": "XAUUSD",
-    "gold":   "XAUUSD",
-    "xauusd": "XAUUSD",
+    "GOLD":   "GOLD",
+    "XAUUSD": "GOLD",
+    "gold":   "GOLD",
+    "xauusd": "GOLD",
 }
 
 
@@ -76,7 +76,7 @@ def validate_and_normalize(raw: dict) -> dict | None:
 
     # ── 正規化シグナル構築 ──
     normalized = {
-        "symbol":      normalize_symbol(raw.get("symbol", "XAUUSD")),
+        "symbol":      normalize_symbol(raw.get("symbol", "GOLD")),
         "price":       price,
         "tf":          tf,
         "direction":   direction,

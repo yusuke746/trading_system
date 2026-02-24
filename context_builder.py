@@ -4,6 +4,7 @@ AI Trading System v2.0
 """
 
 import logging
+import time
 from datetime import datetime, timezone, timedelta
 
 try:
@@ -25,24 +26,34 @@ SYMBOL       = SYSTEM_CONFIG["symbol"]
 
 # ─────────────────────────── MT5指標取得 ──────────────────
 
-def _ensure_symbol_selected(symbol: str) -> bool:
-    """シンボルをMarketWatchに追加し、データが利用可能か確認する"""
+def _ensure_symbol_selected(symbol: str, retries: int = 3, delay: float = 1.0) -> bool:
+    """シンボルをMarketWatchに追加し、データが利用可能か確認する（リトライあり）"""
     if not MT5_AVAILABLE:
         return False
-    # terminal_info で接続確認
-    info = mt5.terminal_info()
-    if info is None or not getattr(info, "connected", False):
-        logger.error("MT5未接続: terminal_info=%s, last_error=%s", info, mt5.last_error())
-        return False
-    # MarketWatchにシンボルを追加（未選択でもcopy_rates_from_posがNullを返す原因になる）
-    if not mt5.symbol_select(symbol, True):
-        logger.error("symbol_select失敗: symbol=%s, last_error=%s", symbol, mt5.last_error())
-        return False
-    sym_info = mt5.symbol_info(symbol)
-    if sym_info is None:
-        logger.error("symbol_info取得失敗: symbol=%s, last_error=%s", symbol, mt5.last_error())
-        return False
-    return True
+    for attempt in range(1, retries + 1):
+        # terminal_info で接続・準備状態を確認
+        info = mt5.terminal_info()
+        if info is None:
+            logger.error("[%d/%d] terminal_info取得失敗: last_error=%s", attempt, retries, mt5.last_error())
+            time.sleep(delay)
+            continue
+        if not getattr(info, "connected", False):
+            logger.error("[%d/%d] MT5未接続(connected=False): last_error=%s", attempt, retries, mt5.last_error())
+            time.sleep(delay)
+            continue
+        # symbol_select: MarketWatchに追加 & データ購読を有効化
+        if mt5.symbol_select(symbol, True):
+            sym_info = mt5.symbol_info(symbol)
+            if sym_info is not None:
+                return True
+            logger.warning("[%d/%d] symbol_info=None: symbol=%s, last_error=%s", attempt, retries, symbol, mt5.last_error())
+        else:
+            err = mt5.last_error()
+            logger.warning("[%d/%d] symbol_select失敗: symbol=%s, last_error=%s", attempt, retries, symbol, err)
+        if attempt < retries:
+            time.sleep(delay)
+    logger.error("symbol_select最終失敗: symbol=%s (%d回試行)", symbol, retries)
+    return False
 
 
 def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
