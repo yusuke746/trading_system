@@ -190,14 +190,48 @@ def build_order_params(trigger: dict, ai_result: dict,
 
     # ロットサイズ計算
     # GOLD 1 lot = 100 oz → 価格1ドル変動 = $100/lot の損益
-    # ∴ lot_size = risk_amount / (sl_dollar × 100)
-    balance   = 10000.0
+    # ∴ lot_size = risk_amount_usd / (sl_dollar × 100)
+    # 注意: 口座通貨がJPY等の場合はUSDに換算してからリスク計算を行う
+    balance_usd = 10000.0
     if MT5_AVAILABLE:
         acc = mt5.account_info()
         if acc:
             balance = acc.balance
+            currency = acc.currency
+            if currency == "USD":
+                balance_usd = balance
+            else:
+                # 口座通貨 → USD 換算レートを取得
+                # 例: 口座通貨=JPY → USDJPY のbidで割る
+                sym_direct = f"USD{currency}"   # USDJPY
+                sym_inv    = f"{currency}USD"   # JPYUSD（存在しない場合が多い）
+                info_direct = mt5.symbol_info(sym_direct)
+                if info_direct is not None:
+                    usdjpy = info_direct.bid
+                    balance_usd = balance / usdjpy if usdjpy > 0 else balance
+                    logger.info(
+                        "💱 口座通貨=%s balance=%.2f %s → USD換算=%.2f (rate=%.4f)",
+                        currency, balance, currency, balance_usd, usdjpy,
+                    )
+                else:
+                    info_inv = mt5.symbol_info(sym_inv)
+                    if info_inv is not None:
+                        rate = info_inv.bid
+                        balance_usd = balance * rate if rate > 0 else balance
+                        logger.info(
+                            "💱 口座通貨=%s balance=%.2f %s → USD換算=%.2f (rate=%.4f)",
+                            currency, balance, currency, balance_usd, rate,
+                        )
+                    else:
+                        # レート取得不可: フォールバックとして残高をそのまま使用せず警告
+                        logger.warning(
+                            "⚠️ 口座通貨=%s のUSD換算レートが取得できません。"
+                            "ロット計算が不正確になる可能性があります。",
+                            currency,
+                        )
+                        balance_usd = balance  # フォールバック（過大リスクになる可能性）
 
-    risk_amount = balance * (RISK_PERCENT / 100.0)
+    risk_amount = balance_usd * (RISK_PERCENT / 100.0)
     lot_size    = round(risk_amount / (sl_dollar * 100.0), 2)
     lot_size    = max(0.01, lot_size)
 
