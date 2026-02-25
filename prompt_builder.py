@@ -21,13 +21,15 @@ XAUUSD（GOLD）の取引シグナルを受け取り、「期待値（Expected V
 
 加点要素（ev_score UP）:
 - macro_zones（directionがbuy/sellの場合）と方向一致: +0.3
-- liquidity_sweep後の逆張り（FVG/Zone到達時）: +0.3
+- liquidity_sweep後の逆張り（FVG/Zone到達時）: +0.4  ← 逆張りセットアップの中核条件として重く評価
+- liquidity_sweep後の逆張り（FVG/Zone非到達でも直近30分以内）: +0.2
 - bar_close確認済みシグナル複数一致: +0.2
 - strength="strong" が方向を裏付け: +0.1
 - 同方向のentry_signalが複数ソースから同時到達: +0.2
 
 減点要素（ev_score DOWN）:
-- macro_zones（directionがbuy/sellの場合）と逆方向: -0.3
+- macro_zones（directionがbuy/sellの場合）と逆方向: -0.2
+  ※ただし liquidity_sweep 後の逆張りセットアップの場合は -0.1 に軽減する
   (※directionが "none" の場合は加点も減点も行わない)
 - intrabarのみで未確認: -0.2
 - 直近structureシグナルがゼロ: -0.2

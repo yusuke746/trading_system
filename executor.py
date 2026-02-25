@@ -434,6 +434,7 @@ def execute_order(trigger: dict, ai_result: dict,
             entry_price=params["entry_price"],
             lot_size=params["lot_size"],
             sl_price=params["sl_price"],
+            tp_price=params["tp_price"],     # TP保持用（BE/トレーリング時に消えないよう）
             atr_pips=params["atr_dollar"],   # dollar価格単位（position_managerで流用）
             execution_id=exec_id,
         )

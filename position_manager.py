@@ -45,6 +45,7 @@ class ManagedPosition:
     atr_pips:         float
     execution_id:     int
     entered_at:       datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    tp_price:         float    = 0.0
     be_applied:       bool     = False
     partial_closed:   bool     = False
     trailing_active:  bool     = False
@@ -78,7 +79,8 @@ class PositionManager:
     def register_position(self, ticket: int, direction: str,
                            entry_price: float, lot_size: float,
                            sl_price: float, atr_pips: float,
-                           execution_id: int):
+                           execution_id: int,
+                           tp_price: float = 0.0):
         """新規ポジションを登録する"""
         with self._lock:
             pos = ManagedPosition(
@@ -87,6 +89,7 @@ class PositionManager:
                 entry_price  = entry_price,
                 lot_size     = lot_size,
                 sl_price     = sl_price,
+                tp_price     = tp_price,
                 atr_pips     = atr_pips,
                 execution_id = execution_id,
             )
@@ -170,7 +173,7 @@ class PositionManager:
         else:
             new_sl = round(pos.entry_price - buffer, 3)
 
-        success = self._update_sl(pos.ticket, new_sl)
+        success = self._update_sl(pos.ticket, new_sl, current_tp=pos.tp_price)
         if success:
             pos.be_applied = True
             pos.sl_price   = new_sl
@@ -263,21 +266,24 @@ class PositionManager:
         if pos.direction == "sell" and new_sl >= pos.sl_price:
             return
 
-        success = self._update_sl(pos.ticket, new_sl)
+        success = self._update_sl(pos.ticket, new_sl, current_tp=pos.tp_price)
         if success:
             pos.sl_price = new_sl
             log_event("pm_trailing_update",
                       f"ticket={pos.ticket} sl→{new_sl} max_price={pos.max_price}")
             logger.debug("📈 トレーリング更新: ticket=%d sl→%.3f", pos.ticket, new_sl)
 
-    def _update_sl(self, ticket: int, new_sl: float) -> bool:
+    def _update_sl(self, ticket: int, new_sl: float, current_tp: float = 0.0) -> bool:
         if not MT5_AVAILABLE:
             return True
+        # current_tpを明示的に指定しTPを保持する
+        # （TRADE_ACTION_SLTPでtpを省略またわ0にするとMT5がTPをリセットするため）
         req    = {
             "action":   mt5.TRADE_ACTION_SLTP,
             "symbol":   SYMBOL,    # 必須フィールド（欠落するとorder_sendが失敗）
             "position": ticket,
             "sl":       new_sl,
+            "tp":       current_tp,  # TPを明示的に保持
         }
         result = mt5.order_send(req)
         return bool(result and result.retcode == mt5.TRADE_RETCODE_DONE)

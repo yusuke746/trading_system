@@ -34,7 +34,7 @@ SYSTEM_CONFIG = {
 
     # ── AI判定閾値 ───────────────────────────────
     "min_confidence":       0.70,
-    "min_ev_score":         0.30,
+    "min_ev_score":         0.20,   # 0.30 → 0.20（逆張り: liquidity+zone で +0.3 だがmacro逆で-0.3が相殺されやすいため緩和）
 
     # ── シグナル収集 ─────────────────────────────
     "collection_window_ms": 500,
