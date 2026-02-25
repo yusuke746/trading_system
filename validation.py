@@ -75,18 +75,40 @@ def validate_and_normalize(raw: dict) -> dict | None:
         tf = None
 
     # ── 正規化シグナル構築 ──
+
+    # tv_confidence: TradingViewのLorentzianが計算したsmooth_confidence（0.0〜1.0）
+    try:
+        tv_confidence = float(raw["confidence"]) if "confidence" in raw else None
+        if tv_confidence is not None and not (0.0 <= tv_confidence <= 1.0):
+            logger.warning("tv_confidence範囲外: %.4f → Noneにクランプ", tv_confidence)
+            tv_confidence = None
+    except (ValueError, TypeError):
+        tv_confidence = None
+
+    # tv_win_rate: TradingViewのLorentzianが計算した勝率（0〜100のパーセント値 → 0.0〜1.0に正規化）
+    try:
+        tv_win_rate_raw = float(raw["win_rate"]) if "win_rate" in raw else None
+        if tv_win_rate_raw is not None and not (0.0 <= tv_win_rate_raw <= 100.0):
+            logger.warning("tv_win_rate範囲外: %.2f → Noneにクランプ", tv_win_rate_raw)
+            tv_win_rate_raw = None
+        tv_win_rate = round(tv_win_rate_raw / 100.0, 3) if tv_win_rate_raw is not None else None
+    except (ValueError, TypeError):
+        tv_win_rate = None
+
     normalized = {
-        "symbol":      normalize_symbol(raw.get("symbol", "GOLD")),
-        "price":       price,
-        "tf":          tf,
-        "direction":   direction,
-        "signal_type": signal_type,
-        "event":       event,
-        "source":      raw.get("source", ""),
-        "strength":    raw.get("strength", ""),
-        "comment":     raw.get("comment", ""),
-        "confirmed":   raw.get("confirmed", ""),
-        "received_at": datetime.now(timezone.utc).isoformat(),
+        "symbol":        normalize_symbol(raw.get("symbol", "GOLD")),
+        "price":         price,
+        "tf":            tf,
+        "direction":     direction,
+        "signal_type":   signal_type,
+        "event":         event,
+        "source":        raw.get("source", ""),
+        "strength":      raw.get("strength", ""),
+        "comment":       raw.get("comment", ""),
+        "confirmed":     raw.get("confirmed", ""),
+        "tv_confidence": tv_confidence,
+        "tv_win_rate":   tv_win_rate,
+        "received_at":   datetime.now(timezone.utc).isoformat(),
     }
 
     # time フィールドが存在すれば保持

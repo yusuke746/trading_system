@@ -42,7 +42,7 @@ def ask_ai(messages: list[dict]) -> dict:
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0.1,
-            max_tokens=512,
+            max_tokens=1024,
         )
         content = response.choices[0].message.content
         result  = json.loads(content)

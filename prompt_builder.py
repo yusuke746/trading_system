@@ -16,30 +16,35 @@ XAUUSD（GOLD）の取引シグナルを受け取り、「期待値（Expected V
 - 逆張りエントリーも条件付きで承認可能（liquidity_sweep + zone/FVG一致時）
 - 不確実な時は wait を返す。無理にエントリーしない
 
-## 期待値スコア（ev_score）の加減点ルール
+## 期待値スコア（ev_score）の加減点ルール（初期値0.0からスタート）
+※計算プロセスは必ず `ev_score_calc` に記載すること。
+
 加点要素（ev_score UP）:
-- macro_zonesと方向一致 +0.3
-- liquidity_sweep後の逆張り +0.3
-- bar_close確認済みシグナル複数一致 +0.2
-- strength=strongが方向を裏付け +0.1
+- macro_zones（directionがbuy/sellの場合）と方向一致: +0.3
+- liquidity_sweep後の逆張り（FVG/Zone到達時）: +0.3
+- bar_close確認済みシグナル複数一致: +0.2
+- strength="strong" が方向を裏付け: +0.1
+- 同方向のentry_signalが複数ソースから同時到達: +0.2
 
 減点要素（ev_score DOWN）:
-- macro_zonesと逆方向 -0.3
-- intrabarのみで未確認 -0.2
-- 直近structureシグナルがゼロ -0.2
-- 相反するstructureが混在 -0.2
-- RSI過熱かつmacro_zone逆方向 -0.2
+- macro_zones（directionがbuy/sellの場合）と逆方向: -0.3
+  (※directionが "none" の場合は加点も減点も行わない)
+- intrabarのみで未確認: -0.2
+- 直近structureシグナルがゼロ: -0.2
+- 相反するstructureが混在: -0.2
+- RSI過熱かつmacro_zone逆方向: -0.2
 
 ## レスポンス形式（JSON必須）
 {
   "decision":       "approve" | "reject" | "wait",
   "confidence":     0.0〜1.0,
+  "ev_score_calc":  "初期値0.0 + [各要素と加減点を列挙] = [合計値]",
   "ev_score":       -1.0〜1.0,
-  "order_type":     "market" | "limit",
+  "order_type":     "market" | "limit" | null,
   "limit_price":    float | null,
   "limit_expiry":   "next_bar" | "30min" | null,
   "reason":         "判定理由（2〜3文・期待値根拠に言及）",
-  "risk_note":      "リスク要因 | null",
+  "risk_note":      "リスク要因（なければJSONのnull。文字列の\"null\"不可）",
   "wait_scope":     "next_bar" | "structure_needed" | "cooldown" | null,
   "wait_condition": "昇格条件の説明 | null"
 }
@@ -57,8 +62,9 @@ statistical_context が提供された場合は、以下のルールを適用し
 - >= 5 → wait を強制（`wait_scope: "cooldown"`）
 
 ### 勝率（win_rate）
-- < 0.50 → ev_score を -0.10 調整（エッジが機能していない可能性）
-- < 0.40 → ev_score を -0.25 調整（セットアップ自体の見直しが必要）
+- < 0.50（50%未満） → ev_score を -0.10 調整（エッジが機能していない可能性）
+- < 0.40（40%未満） → ev_score を -0.25 調整（セットアップ自体の見直しが必要）
+- ※ちょうど 0.50 の場合は調整しない
 
 ### トレンド強度（trend_strength）
 - "strong_bull" かつ sell シグナル → ev_score を -0.15 調整（逆張り）
@@ -68,6 +74,21 @@ statistical_context が提供された場合は、以下のルールを適用し
 ### RSI Zスコア（rsi_zscore_5m）
 - > 2.0 → 買われすぎ圏。buy 方向の approve には risk_note を必ず付記
 - < -2.0 → 売られすぎ圏。sell 方向の approve には risk_note を必ず付記
+
+### TradingView Lorentzian信頼度（tv_confidence）
+※ これはTradingView側のインジケーターが計算した値であり、MT5のデータとは独立している。
+- >= 0.85 → Lorentzianが高確信。他条件が揃えば approve を積極的に検討
+- 0.70〜0.84 → 標準的な信頼度。他のEV要素と合わせて総合判断
+- < 0.70 → 信頼度低。ev_score を -0.1 調整
+- null → TVから送信なし。この項目は無視する
+
+### TradingView Lorentzian勝率（tv_win_rate）
+※ TradingView上でのLorentzianの直近シグナル勝率（0.0〜1.0）。
+  DBに蓄積されたtrading_stats.win_rateとは別の独立した指標として扱うこと。
+- >= 0.70 → Lorentzianが現在の相場環境に適合している。ev_score を +0.1 調整
+- 0.50〜0.69 → 標準。調整なし
+- < 0.50 → Lorentzianのエッジが機能していない可能性。ev_score を -0.1 調整
+- null → TVから送信なし。この項目は無視する
 
 ### 取引セッション（session_info）
 以下の session 値ごとに期待値を調整してください。
@@ -105,10 +126,12 @@ def build_prompt(context: dict) -> list[dict]:
         )
 
     # ── セクション2: 直近コンテキスト（15〜30分）────
-    recent_structure = (
+    recent_structure = sorted(
         structure.get("zone_retrace", []) +
         structure.get("fvg_touch",    []) +
-        structure.get("liquidity_sweep", [])
+        structure.get("liquidity_sweep", []),
+        key=lambda s: s.get("received_at", ""),
+        reverse=True,  # 最新順（最近のイベントを先頭に）
     )
     recent_text = "（なし）"
     if recent_structure:
@@ -124,10 +147,15 @@ def build_prompt(context: dict) -> list[dict]:
 
     # ── トリガーシグナル情報 ──────────────────────────
     trigger_text = json.dumps(
-        [{"source": s.get("source"), "direction": s.get("direction"),
-          "strength": s.get("strength"), "confirmed": s.get("confirmed"),
-          "price": s.get("price"), "tf": s.get("tf"),
-          "event": s.get("event")}
+        [{"source":        s.get("source"),
+          "direction":     s.get("direction"),
+          "strength":      s.get("strength"),
+          "confirmed":     s.get("confirmed"),
+          "price":         s.get("price"),
+          "tf":            s.get("tf"),
+          "event":         s.get("event"),
+          "tv_confidence": s.get("tv_confidence"),   # TradingView側のLorentzian信頼度
+          "tv_win_rate":   s.get("tv_win_rate")}      # TradingView側の直近勝率（0.0〜1.0）
          for s in entry_signals],
         ensure_ascii=False, indent=2
     )
@@ -167,7 +195,8 @@ def build_prompt(context: dict) -> list[dict]:
 ## 大局構造（12時間以内のnew_zone_confirmed）
 {macro_text}
 
-## 直近コンテキスト（15〜30分以内）
+## 直近コンテキスト（過去0〜30分以内）
+※ zone_retrace_touch / fvg_touch は過去15分以内、liquidity_sweep は過去30分以内のデータ
 {recent_text}
 
 ## MT5テクニカル情報

@@ -351,19 +351,70 @@ def _fetch_structure_signals(event: str, window_sec: int) -> list:
         conn.close()
 
 
+def _fetch_macro_zones_with_direction(window_sec: int, current_price: float) -> list:
+    """
+    new_zone_confirmed シグナルを取得し、現在価格との比較で direction を動的に判定する。
+
+    - zone価格 < 現在価格 → Demand Zone（支持帯）→ direction="buy"
+    - zone価格 > 現在価格 → Supply Zone（抵抗帯）→ direction="sell"
+
+    TradingView側が送信する direction は価格変動により古くなるため、
+    現在価格を基準に必ず上書きする。
+    """
+    signals = _fetch_structure_signals("new_zone_confirmed", window_sec)
+    result = []
+    for s in signals:
+        try:
+            zone_price = float(s["price"])
+        except (TypeError, ValueError):
+            result.append(s)
+            continue
+
+        s = dict(s)  # イミュータブルなコピーを作成
+        if zone_price < current_price:
+            s["direction"] = "buy"   # Demand Zone（価格の下にある → 支持帯）
+        elif zone_price > current_price:
+            s["direction"] = "sell"  # Supply Zone（価格の上にある → 抵抗帯）
+        else:
+            s["direction"] = "none"  # 現在価格と履んでいる（調整なし）
+        result.append(s)
+    return result
+
+
 def build_context_for_ai(entry_signals: list) -> dict:
     """
     entry_triggerシグナル群を受け取り、AIに渡すコンテキストを組み立てる。
     """
     symbol = entry_signals[0]["symbol"] if entry_signals else SYMBOL
 
+    # 現在価格：MT5ティックを最優先、取得失敗時にentry_signals価格を使用
+    # （TV送信時前の価格よりもMT5リアルタイムティックの方が常に最新であるため）
+    current_price: float | None = None
+    if MT5_AVAILABLE:
+        try:
+            tick = mt5.symbol_info_tick(symbol)
+            if tick:
+                current_price = float((tick.bid + tick.ask) / 2)
+        except Exception:
+            pass
+    if current_price is None:
+        try:
+            current_price = float(entry_signals[0]["price"]) if entry_signals else None
+        except (TypeError, ValueError):
+            current_price = None
+
     context = {
         "entry_signals": entry_signals,
         "mt5_context":   get_mt5_context(symbol),
         "structure": {
-            # 12時間窓
-            "macro_zones": _fetch_structure_signals(
-                "new_zone_confirmed", TIME_WINDOWS["new_zone_confirmed"]),
+            # 12時間窓：現在価格と比較してDemand/Supplyを動的判定
+            "macro_zones": (
+                _fetch_macro_zones_with_direction(
+                    TIME_WINDOWS["new_zone_confirmed"], current_price)
+                if current_price is not None
+                else _fetch_structure_signals(
+                    "new_zone_confirmed", TIME_WINDOWS["new_zone_confirmed"])
+            ),
             # 15分窓
             "zone_retrace": _fetch_structure_signals(
                 "zone_retrace_touch", TIME_WINDOWS["zone_retrace_touch"]),

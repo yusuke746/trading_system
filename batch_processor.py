@@ -58,20 +58,12 @@ class BatchProcessor:
                         [t.get("source") for t in entry_triggers])
             return
 
-        # 同方向バッチ → ev_score ボーナス付与（プログラム側で一元管理; SYSTEM_PROMPTには記載しない）
-        ev_bonus = 0.2 if len(entry_triggers) > 1 else 0.0
-
         # コンテキスト構築
         context  = build_context_for_ai(entry_triggers)
         messages = build_prompt(context)
 
-        # AI判定
+        # AI判定（evボーナスはAIのルールに委譲し、後付け加算は行わない）
         ai_result = ask_ai(messages)
-        if ev_bonus:
-            ai_result["ev_score"] = round(
-                ai_result.get("ev_score", 0) + ev_bonus, 3)
-            logger.info("🔼 同方向バッチボーナス +%.1f → ev_score=%.3f",
-                        ev_bonus, ai_result["ev_score"])
 
         # DB記録
         ai_decision_id = log_ai_decision(
@@ -85,10 +77,14 @@ class BatchProcessor:
                     ai_result.get("ev_score", 0))
 
         if decision == "approve" and should_execute(ai_result):
+            if len(entry_triggers) > 1:
+                logger.info("📦 複数トリガーによるapprove: sources=%s → 代表トリガー=%s",
+                            [t.get("source") for t in entry_triggers],
+                            entry_triggers[0].get("source"))
             execute_order(
-                trigger        = entry_triggers[0],
-                ai_result      = ai_result,
-                ai_decision_id = ai_decision_id,
+                trigger          = entry_triggers[0],
+                ai_result        = ai_result,
+                ai_decision_id   = ai_decision_id,
                 position_manager = self._position_manager,
             )
 
