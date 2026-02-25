@@ -78,10 +78,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 <div class="card" style="margin-bottom:16px">
   <h3>🤖 直近AI判定</h3>
-  <table id="ai-table">
+  <div style="overflow-x:auto">
+  <table id="ai-table" style="min-width:700px">
     <thead><tr><th>時刻</th><th>Decision</th><th>EV</th><th>Conf</th><th>理由</th></tr></thead>
     <tbody id="ai-body"></tbody>
   </table>
+  </div>
 </div>
 
 <div class="card">
@@ -132,7 +134,7 @@ async function refresh() {
       tr.innerHTML = `<td>${a.created_at?.substring(11,19)||''}</td>
         <td class="${a.decision}">${a.decision||''}</td>
         <td>${a.ev_score?.toFixed(2)||''}</td><td>${a.confidence?.toFixed(2)||''}</td>
-        <td style="max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.reason||''}</td>`;
+        <td style="white-space:nowrap">${a.reason||''}</td>`;
     });
 
     // ポジション
