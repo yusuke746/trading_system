@@ -203,6 +203,78 @@ def check_gap_risk(symbol: str, entry_price: float) -> dict:
 # 統合チェック（executor.pyから呼び出す便利関数）
 # ────────────────────────────────────────────────────────────
 
+def reset_daily_stats(delete_records: bool = False) -> dict:
+    """
+    日次ストップ・連続損失カウントを手動リセットする（デモ用）。
+
+    Args:
+        delete_records: True → 当日の trade_results を物理削除
+                        False → pnl_usd=0 の補正レコードを挿入（履歴保持）
+
+    Returns:
+        {"ok": bool, "message": str, "daily_pnl_before": float, "consecutive_before": int}
+    """
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    daily_before = 0.0
+    consec_before = 0
+
+    try:
+        conn = get_connection()
+
+        # 現在の状態を記録
+        row = conn.execute(
+            "SELECT COALESCE(SUM(pnl_usd), 0.0) AS total FROM trade_results WHERE closed_at LIKE ?",
+            (today_str + "%",),
+        ).fetchone()
+        daily_before = float(row["total"])
+
+        rows = conn.execute(
+            "SELECT outcome FROM trade_results ORDER BY id DESC LIMIT ?",
+            (MAX_CONSECUTIVE_LOSS,),
+        ).fetchall()
+        for r in rows:
+            if r["outcome"] == "sl_hit":
+                consec_before += 1
+            else:
+                break
+
+        if delete_records:
+            # 当日レコードを物理削除
+            deleted = conn.execute(
+                "DELETE FROM trade_results WHERE closed_at LIKE ?",
+                (today_str + "%",),
+            ).rowcount
+            conn.commit()
+            message = f"当日 trade_results を {deleted} 件削除しました"
+        else:
+            # 補正レコードを挿入（daily_pnl を 0 に戻す）
+            offset = -daily_before  # 損失分を相殺
+            conn.execute(
+                """
+                INSERT INTO trade_results
+                    (execution_id, mt5_ticket, outcome, pnl_usd, pnl_pips, duration_min, closed_at)
+                VALUES (NULL, 0, 'manual', ?, 0, 0, ?)
+                """,
+                (offset, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+            message = f"補正レコード挿入: offset={offset:.2f} (当日PnLを0にリセット)"
+
+        conn.close()
+        logger.warning("⚠️ リスクリセット実行: %s", message)
+        return {
+            "ok": True,
+            "message": message,
+            "daily_pnl_before": daily_before,
+            "consecutive_before": consec_before,
+        }
+
+    except Exception as exc:
+        logger.error("reset_daily_stats error: %s", exc)
+        return {"ok": False, "message": str(exc), "daily_pnl_before": 0.0, "consecutive_before": 0}
+
+
 def run_all_risk_checks(symbol: str, entry_price: float = 0.0) -> dict:
     """
     3つのリスクチェックをまとめて実行。

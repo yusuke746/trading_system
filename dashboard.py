@@ -86,6 +86,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 </div>
 
+<div class="card" style="margin-bottom:16px;border-color:#f85149">
+  <h3>⚠️ リスク管理（デモ用リセット）</h3>
+  <div id="risk-status" style="margin-bottom:10px;font-size:.85rem">読み込み中...</div>
+  <button onclick="resetRisk(false)" style="background:#21262d;border:1px solid #f85149;color:#f85149;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">
+    🔄 日次リセット（補正挿入）
+  </button>
+  <button onclick="resetRisk(true)" style="background:#21262d;border:1px solid #8b949e;color:#8b949e;padding:6px 14px;border-radius:6px;cursor:pointer">
+    🗑 当日レコード削除
+  </button>
+  <div id="reset-msg" style="margin-top:8px;font-size:.8rem;color:#3fb950"></div>
+</div>
+
 <div class="card">
   <h3>📈 オープンポジション</h3>
   <table id="pos-table">
@@ -148,7 +160,33 @@ async function refresh() {
     });
 
     document.getElementById('updated-at').textContent = '最終更新: ' + new Date().toLocaleTimeString();
+
+    // リスク状態表示
+    try {
+      const rr = await fetch('/dashboard/api/risk_status');
+      const rd = await rr.json();
+      const blocked = rd.blocked;
+      const daily = rd.details?.daily_loss || {};
+      const consec = rd.details?.consecutive || {};
+      document.getElementById('risk-status').innerHTML =
+        `状態: <strong style="color:${blocked?'#f85149':'#3fb950'}">${blocked?'🔴 ブロック中':'🟢 取引可能'}</strong>` +
+        ` &nbsp;|&nbsp; 当日PnL: <span style="color:${(daily.daily_pnl_usd||0)<0?'#f85149':'#3fb950'}">${(daily.daily_pnl_usd||0).toFixed(0)}</span>` +
+        ` &nbsp;|&nbsp; 連続負け: ${consec.consecutive_count||0}回` +
+        (blocked ? `<br><span style="color:#f85149;font-size:.78rem">${rd.reason}</span>` : '');
+    } catch(e) {}
   } catch(e) { console.error(e); }
+}
+async function resetRisk(deleteRecords) {
+  const msg = deleteRecords ? '当日レコードを物理削除します。本当によいですか？' : '補正レコードを挿入して日次PnLをリセットします。';
+  if (!confirm(msg)) return;
+  const r = await fetch('/dashboard/api/reset_risk', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({delete_records: deleteRecords})
+  });
+  const d = await r.json();
+  document.getElementById('reset-msg').textContent = d.message || d.error || '';
+  refresh();
 }
 refresh();
 setInterval(refresh, 15000);
@@ -314,6 +352,27 @@ def api_optimizer():
     latest  = param_optimizer.get_latest_from_db()
     history = param_optimizer.get_history(n=n)
     return jsonify({"latest": latest, "history": history})
+
+
+@dashboard_bp.route("/api/risk_status", methods=["GET"])
+def api_risk_status():
+    """現在のリスクチェック状態を返す"""
+    import risk_manager
+    result = risk_manager.run_all_risk_checks(symbol="GOLD")
+    return jsonify(result)
+
+
+@dashboard_bp.route("/api/reset_risk", methods=["POST"])
+def api_reset_risk():
+    """日次ストップ・連続損失カウントをリセットする（デモ用）"""
+    from flask import request
+    import risk_manager
+    body         = request.get_json(silent=True) or {}
+    delete_records = bool(body.get("delete_records", False))
+    result = risk_manager.reset_daily_stats(delete_records=delete_records)
+    if result["ok"]:
+        return jsonify(result)
+    return jsonify({"error": result["message"]}), 500
 
 
 @dashboard_bp.route("/api/backtest", methods=["GET"])
