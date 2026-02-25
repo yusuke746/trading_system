@@ -154,6 +154,13 @@ def startup():
         name="PendingMonitor"
     ).start()
 
+    # eod_close_monitor（デイリーブレイク前の全ポジション強制クローズ）
+    threading.Thread(
+        target=_eod_close_loop,
+        daemon=True,
+        name="EodCloseMonitor"
+    ).start()
+
     logger.info("[5/5] Flask起動 port=%d", FLASK_PORT)
     logger.info("=" * 60)
     logger.info("  🚀 システム起動完了")
@@ -174,6 +181,42 @@ def _build_notifier():
         def notify_loss_alert(self, pnl_usd, ticket):
             n.notify_loss_alert(pnl_usd, ticket)
     return _Notifier()
+
+
+def _eod_close_loop():
+    """5秒ごとに監視し、23:30 UTC になったら全ポジションを成行クローズする（1日1回）"""
+    try:
+        import executor as exc_mod
+    except ImportError:
+        return
+
+    EOD_H = SYSTEM_CONFIG["eod_close_h"]
+    EOD_M = SYSTEM_CONFIG["eod_close_m"]
+
+    from datetime import datetime, timezone, time as dtime
+    last_fired_date = None   # 当日すでに発火済みかを管理
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            today = now.date()
+            if now.time() >= dtime(EOD_H, EOD_M) and last_fired_date != today:
+                logger.info(
+                    "⏰ EODクローズ開始（%02d:%02d UTC）", EOD_H, EOD_M
+                )
+                results = exc_mod.close_all_positions(reason="eod_close")
+                closed_count = sum(1 for r in results if r["success"])
+                logger.info(
+                    "✅ EODクローズ完了: %d/%d ポジション決済",
+                    closed_count, len(results)
+                )
+                log_event(
+                    "eod_close_summary",
+                    f"closed={closed_count}/{len(results)}"
+                )
+                last_fired_date = today
+        except Exception as e:
+            logger.error("EodCloseMonitor例外: %s", e)
+        time.sleep(5)
 
 
 def _pending_monitor_loop():

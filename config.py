@@ -86,6 +86,10 @@ SYSTEM_CONFIG = {
     # デイリーブレイク前の警告マージン（分）
     # daily_break_start_m(45) - limit_cancel_warn_m(15) = 23:30 からキャンセル警戒
     "limit_cancel_warn_m":  15,
+    # デイリーブレイク前の全ポジション強制クローズ時刻（UTC）
+    # daily_break(23:45)の15分前 = 23:30
+    "eod_close_h": 23,
+    "eod_close_m": 30,
 }
 
 # ── ATRベースのSL/TP計算定数 ───────────────────────

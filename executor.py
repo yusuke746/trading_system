@@ -266,6 +266,61 @@ def send_order(params: dict) -> tuple[bool, int, str]:
     return True, result.order, ""
 
 
+# ─────────────────────────── EOD全ポジションクローズ ────────
+
+def close_all_positions(symbol: str = SYMBOL, reason: str = "eod_close") -> list[dict]:
+    """
+    指定シンボルの全オープンポジションを成行で決済する。
+    Returns: 各ポジションの結果リスト [{ticket, success, error}]
+    """
+    results = []
+    if not MT5_AVAILABLE:
+        logger.info("【テストモード】close_all_positions スキップ")
+        return results
+
+    positions = mt5.positions_get(symbol=symbol) or []
+    if not positions:
+        logger.info("close_all_positions: オープンポジションなし")
+        return results
+
+    for pos in positions:
+        if pos.magic != MAGIC:
+            continue  # このシステム以外のポジションは触らない
+
+        # 決済方向はエントリーの逆
+        if pos.type == mt5.ORDER_TYPE_BUY:
+            close_type = mt5.ORDER_TYPE_SELL
+            price      = mt5.symbol_info_tick(symbol).bid
+        else:
+            close_type = mt5.ORDER_TYPE_BUY
+            price      = mt5.symbol_info_tick(symbol).ask
+
+        req = {
+            "action":       mt5.TRADE_ACTION_DEAL,
+            "symbol":       symbol,
+            "volume":       pos.volume,
+            "type":         close_type,
+            "position":     pos.ticket,
+            "price":        price,
+            "deviation":    DEVIATION,
+            "magic":        MAGIC,
+            "comment":      reason,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(req)
+        ok  = bool(result and result.retcode == mt5.TRADE_RETCODE_DONE)
+        err = "" if ok else (f"retcode={result.retcode}" if result else "None")
+
+        log_event(reason, f"ticket={pos.ticket} vol={pos.volume} ok={ok} {err}")
+        logger.info(
+            "🔒 EODクローズ: ticket=%d vol=%.2f price=%.3f ok=%s %s",
+            pos.ticket, pos.volume, price, ok, err
+        )
+        results.append({"ticket": pos.ticket, "success": ok, "error": err})
+
+    return results
+
+
 # ─────────────────────────── execute_order ────────────────
 
 def execute_order(trigger: dict, ai_result: dict,
