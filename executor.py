@@ -115,15 +115,48 @@ def _get_atr15m(symbol: str) -> float:
         return 20.0
 
 
+def _get_current_market_price(symbol: str, direction: str) -> float | None:
+    """
+    MT5から最新の成行価格を取得する。
+    buy  → ask（売り手が提示する価格＝買い手が払う価格）
+    sell → bid（買い手が提示する価格＝売り手が受け取る価格）
+    取得失敗時は None を返す。
+    """
+    if not MT5_AVAILABLE:
+        return None
+    try:
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            return None
+        return tick.ask if direction == "buy" else tick.bid
+    except Exception as e:
+        logger.error("現在価格取得エラー: %s", e)
+        return None
+
+
 def build_order_params(trigger: dict, ai_result: dict,
                         ai_decision_id: int = None) -> dict:
     """
     ATRベースでSL/TP・ロットサイズを計算して注文パラメータを返す。
     ATR乗数は param_optimizer.get_live_params() により動的に調整される。
+    market注文の場合はMT5の最新価格でエントリー価格を上書きする（再評価時の古値ズレ対策）。
     """
     symbol    = trigger.get("symbol", SYMBOL)
     direction = trigger.get("direction", "buy")
     price     = trigger.get("price", 0.0)
+
+    order_type = ai_result.get("order_type", "market")
+
+    # market注文の場合はMT5の現在価格に上書き（再評価時の古値ズレ対策）
+    if order_type == "market":
+        fresh_price = _get_current_market_price(symbol, direction)
+        if fresh_price is not None and fresh_price > 0:
+            if abs(fresh_price - price) > 0.1:   # 0.1ドル以上ズレていればログ
+                logger.info(
+                    "⏱ 価格更新: trigger_price=%.3f → fresh_price=%.3f (Δ%.3f)",
+                    price, fresh_price, fresh_price - price,
+                )
+            price = fresh_price
 
     # 動的パラメータ取得（市場環境・成績に基づくATR乗数調整）
     live_params = param_optimizer.get_live_params()
@@ -176,7 +209,6 @@ def build_order_params(trigger: dict, ai_result: dict,
         sl_price = round(price + sl_dollar, 3)
         tp_price = round(price - atr_dollar * dyn_tp_mult, 3)
 
-    order_type    = ai_result.get("order_type", "market")
     limit_price   = ai_result.get("limit_price")
     limit_expiry  = ai_result.get("limit_expiry")
 
