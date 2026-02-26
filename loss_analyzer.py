@@ -155,14 +155,11 @@ class LossAnalyzer:
 
         # executionsテーブルからexecution_idを取得
         conn = get_connection()
-        try:
-            row = conn.execute(
-                "SELECT id FROM executions WHERE mt5_ticket=? LIMIT 1",
-                (ticket,)
-            ).fetchone()
-            execution_id = row["id"] if row else None
-        finally:
-            conn.close()
+        row = conn.execute(
+            "SELECT id FROM executions WHERE mt5_ticket=? LIMIT 1",
+            (ticket,)
+        ).fetchone()
+        execution_id = row["id"] if row else None
 
         result_id = log_trade_result(
             execution_id    = execution_id,
@@ -186,16 +183,13 @@ class LossAnalyzer:
         """振り返りAI（GPT-4o-mini）"""
         # 元のAI判定コンテキストを取得
         conn = get_connection()
-        try:
-            row = conn.execute("""
+        row = conn.execute("""
                 SELECT ad.context_json, ad.reason
                 FROM executions e
                 JOIN ai_decisions ad ON ad.id = e.ai_decision_id
                 WHERE e.mt5_ticket = ?
                 LIMIT 1
             """, (ticket,)).fetchone()
-        finally:
-            conn.close()
 
         original_context = ""
         original_reason  = ""
