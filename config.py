@@ -6,8 +6,9 @@ AI Trading System v2.0
 SYSTEM_CONFIG = {
     # ── 取引設定 ────────────────────────────────
     "symbol":               "GOLD",   # XMTrading のシンボル名（XAUUSD ではない）
-    "max_positions":        1,
-    "min_free_margin":      500.0,
+    "max_positions":          5,       # 1 → 5 に変更
+    "max_total_risk_percent": 0.10,    # 新規追加：口座残高の10%を上限
+    "min_free_margin":        500.0,
 
     # ── リスク管理 ───────────────────────────────
     "risk_percent":         2.0,
@@ -43,9 +44,10 @@ SYSTEM_CONFIG = {
     # ── コンテキスト時間窓（秒）─────────────────
     "time_windows": {
         "new_zone_confirmed":  60 * 60 * 12,   # 12時間
-        "zone_retrace_touch":  60 * 15,          # 15分
-        "fvg_touch":           60 * 15,          # 15分
-        "liquidity_sweep":     60 * 30,          # 30分
+        "zone_retrace_touch":  60 * 15,         # 15分
+        "fvg_touch":           60 * 15,         # 15分
+        "liquidity_sweep":     60 * 30,         # 30分
+        "prediction_signal":   60 * 60 * 4,    # 新規追加：4時間（Q-trend環境認識）
     },
 
     # ── wait設定（秒）────────────────────────────
@@ -70,6 +72,10 @@ SYSTEM_CONFIG = {
     "be_buffer_pips":           2.0,   # BEの余裕幅
     "trailing_step_atr_mult":   1.5,   # 1.0 → 1.5（トレーリング幅を拡大）
     "pm_check_interval_sec":    10,
+
+    # ── 逆張り自動昇格設定 ────────────────────────
+    "reversal_auto_trigger_enabled": True,   # 逆張り自動昇格の有効/無効
+    "reversal_cooldown_sec":         60 * 5, # 同一方向の連続昇格を防ぐクールダウン（5分）
 
     # ── 監視設定 ─────────────────────────────────
     "health_check_interval_sec":   60,

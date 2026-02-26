@@ -403,6 +403,14 @@ def build_context_for_ai(entry_signals: list) -> dict:
         except (TypeError, ValueError):
             current_price = None
 
+    # Q-trend環境認識：直近の方向転換シグナルを最新1件取得
+    q_trend_signals = _fetch_structure_signals(
+        "prediction_signal", TIME_WINDOWS.get("prediction_signal", 60 * 60 * 4)
+    )
+    # sourceがQ-trendのものだけに絞り、最新1件を取得
+    q_trend_signals = [s for s in q_trend_signals if s.get("source") == "Q-trend"]
+    q_trend_latest = q_trend_signals[0] if q_trend_signals else None
+
     context = {
         "entry_signals": entry_signals,
         "mt5_context":   get_mt5_context(symbol),
@@ -425,6 +433,13 @@ def build_context_for_ai(entry_signals: list) -> dict:
             "liquidity_sweep": _fetch_structure_signals(
                 "liquidity_sweep", TIME_WINDOWS["liquidity_sweep"]),
         },
+        # Q-trend環境認識（直近の方向転換、最新1件）
+        "q_trend_context": {
+            "direction": q_trend_latest.get("direction") if q_trend_latest else None,
+            "strength":  q_trend_latest.get("strength")  if q_trend_latest else None,
+            "price":     q_trend_latest.get("price")     if q_trend_latest else None,
+            "time":      q_trend_latest.get("received_at") if q_trend_latest else None,
+        } if q_trend_latest else None,
         "statistical_context": {
             "market_regime":  _get_market_regime(symbol),
             "trading_stats":  _get_trading_stats(recent_n=20),

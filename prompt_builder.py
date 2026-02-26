@@ -102,6 +102,19 @@ statistical_context が提供された場合は、以下のルールを適用し
 | London_NY   | very_high  | +0.10       | GOLDの主戦場。高精度エントリー最大適用期間 |
 | NY          | medium     | 0.00        | 通常判断。NY引けに近づくにつれ慎重に |
 | Off_hours   | low        | -0.15       | デイリーブレイク接近。wait / reject 優先 |
+
+### Q-trend環境認識（q_trend_context）
+Q-trendはトレンド方向の環境認識インジケーターであり、エントリートリガーではない。
+以下のルールを適用してください。
+
+- Q-trend direction = buy かつ entry_trigger direction = buy → 環境一致: ev_score +0.15
+- Q-trend direction = sell かつ entry_trigger direction = sell → 環境一致: ev_score +0.15
+- Q-trend direction = buy かつ entry_trigger direction = sell → 環境逆行: ev_score -0.10
+  ※ただし liquidity_sweep 後の逆張りセットアップの場合は調整なし
+- Q-trend direction = sell かつ entry_trigger direction = buy → 環境逆行: ev_score -0.10
+  ※ただし liquidity_sweep 後の逆張りセットアップの場合は調整なし
+- Q-trend データなし（4時間以上シグナルなし） → 調整なし（この項目を無視する）
+- Q-trend strength = "strong" かつ方向一致 → さらに ev_score +0.05 を追加
 """
 
 
@@ -115,6 +128,7 @@ def build_prompt(context: dict) -> list[dict]:
     structure      = context.get("structure", {})
     reeval_meta    = context.get("reeval_meta", None)
     stat_ctx       = context.get("statistical_context", {})
+    q_trend_ctx    = context.get("q_trend_context", None)  # 追加
 
     # ── セクション1: 大局構造（12時間）──────────────
     macro_zones = structure.get("macro_zones", [])
@@ -173,6 +187,18 @@ def build_prompt(context: dict) -> list[dict]:
 - 経過時間: {reeval_meta.get('elapsed_seconds', 0):.0f}秒
 """
 
+    # ── セクション2.5: Q-trend環境認識 ───────────────
+    q_trend_text = "（データなし）"
+    if q_trend_ctx:
+        direction = q_trend_ctx.get("direction", "不明")
+        strength  = q_trend_ctx.get("strength",  "normal")
+        price     = q_trend_ctx.get("price",     "不明")
+        time_str  = q_trend_ctx.get("time",      "不明")
+        q_trend_text = (
+            f"方向={direction} 強度={strength} "
+            f"価格={price} 時刻={time_str}"
+        )
+
     # ── セクション4: 統計コンテキスト ───────────────
     stat_text = "（データなし）"
     if stat_ctx:
@@ -193,6 +219,10 @@ def build_prompt(context: dict) -> list[dict]:
 
 ## 現在の取引セッション
 {session_text}
+
+## Q-trend環境認識（直近の方向転換、最大4時間以内）
+※ Q-trendはトレンド方向の環境認識インジケーター。エントリートリガーではなく環境フィルターとして使用。
+{q_trend_text}
 
 ## 大局構造（12時間以内のnew_zone_confirmed）
 {macro_text}

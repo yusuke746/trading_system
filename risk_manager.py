@@ -31,7 +31,7 @@ SYMBOL                = SYSTEM_CONFIG.get("symbol", "XAUUSD")
 
 
 def _get_balance() -> float:
-    """MT5から口座残高を取得する。取得失敗時は10,000ドルをフォールバックとして使用"""
+    """MT5から口座残高を取得する。取得失敗時は2,000ドルをフォールバックとして使用"""
     if MT5_AVAILABLE:
         try:
             acc = mt5.account_info()
@@ -39,7 +39,7 @@ def _get_balance() -> float:
                 return acc.balance
         except Exception:
             pass
-    return 10_000.0
+    return 2_000.0
 
 
 # ────────────────────────────────────────────────────────────
@@ -100,6 +100,9 @@ def check_consecutive_losses() -> dict:
     直近 MAX_CONSECUTIVE_LOSS 件のトレード結果を確認し、
     全件が 'sl_hit' であれば取引停止。
 
+    複数ポジション同時決済に対応：
+    closed_at が ±10秒以内の sl_hit は「1回の連続損失」としてまとめてカウントする。
+
     Returns:
         {
             "blocked": bool,
@@ -112,23 +115,61 @@ def check_consecutive_losses() -> dict:
         conn = get_connection()
         rows = conn.execute(
             """
-            SELECT outcome
+            SELECT outcome, closed_at
             FROM   trade_results
             ORDER  BY id DESC
-            LIMIT  ?
+            LIMIT  50
             """,
-            (n,),
         ).fetchall()
         conn.close()
     except Exception as exc:
         logger.error("check_consecutive_losses DB error: %s", exc)
         return {"blocked": False, "consecutive_count": 0, "reason": "db_error"}
 
-    if len(rows) < n:
-        # まだ充分なデータがない
-        return {"blocked": False, "consecutive_count": len(rows), "reason": "insufficient_data"}
+    if not rows:
+        return {"blocked": False, "consecutive_count": 0, "reason": "insufficient_data"}
 
-    all_sl = all(r["outcome"] == "sl_hit" for r in rows)
+    # ── 同時決済グループにまとめる（±10秒以内のsl_hitを1グループ）──
+    from datetime import timedelta
+
+    def _parse_dt(s):
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    grouped = []   # [{"outcome": str, "closed_at": datetime}, ...]
+    for row in rows:
+        outcome   = row["outcome"]
+        closed_at = _parse_dt(row["closed_at"])
+
+        if not grouped:
+            grouped.append({"outcome": outcome, "closed_at": closed_at})
+            continue
+
+        last = grouped[-1]
+        # 直前グループと同じ outcome かつ 0秒超〜10秒以内 → 同時決済とみなしスキップ
+        # （差分が0秒＝完全同一タイムスタンプは別ロスとしてカウント）
+        if (
+            outcome == "sl_hit"
+            and last["outcome"] == "sl_hit"
+            and last["closed_at"] is not None
+            and closed_at is not None
+            and 0 < abs((closed_at - last["closed_at"]).total_seconds()) <= 10
+        ):
+            continue  # 同時決済とみなし重複カウントしない
+
+        grouped.append({"outcome": outcome, "closed_at": closed_at})
+
+    # ── グループ化後の直近 n 件で連続損失を判定 ──
+    recent = grouped[:n]
+
+    if len(recent) < n:
+        # まだ充分なデータがない
+        count = sum(1 for g in recent if g["outcome"] == "sl_hit")
+        return {"blocked": False, "consecutive_count": count, "reason": "insufficient_data"}
+
+    all_sl = all(g["outcome"] == "sl_hit" for g in recent)
     if all_sl:
         reason = f"直近 {n} 件が連続SL被弾 → 取引停止"
         logger.warning("RISK: %s", reason)
@@ -136,8 +177,8 @@ def check_consecutive_losses() -> dict:
 
     # 実際の連続損失数（直近から数える）
     count = 0
-    for r in rows:
-        if r["outcome"] == "sl_hit":
+    for g in grouped:
+        if g["outcome"] == "sl_hit":
             count += 1
         else:
             break

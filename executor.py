@@ -70,6 +70,25 @@ def pre_execution_check(symbol: str = SYMBOL, entry_price: float = 0.0) -> dict:
         return {"ok": False,
                 "reason": f"ポジション上限 {MAX_POSITIONS} に到達"}
 
+    # ④-2 口座全体リスクエクスポージャーチェック
+    acc = mt5.account_info()
+    if acc and acc.balance > 0:
+        max_total_risk = acc.balance * SYSTEM_CONFIG.get("max_total_risk_percent", 0.05)
+        total_risk_usd = sum(
+            abs(p.price_open - p.sl) * p.volume * 100
+            for p in positions
+            if p.sl > 0
+        )
+        if total_risk_usd > max_total_risk:
+            return {
+                "ok": False,
+                "reason": (
+                    f"口座全体リスク上限超過: "
+                    f"現在リスク ${total_risk_usd:.1f} / 上限 ${max_total_risk:.1f} "
+                    f"(残高 ${acc.balance:.0f} × {SYSTEM_CONFIG.get('max_total_risk_percent', 0.05)*100:.1f}%)"
+                ),
+            }
+
     # ⑤ フリーマージンチェック
     acc = mt5.account_info()
     if acc and acc.margin_free < MIN_MARGIN:
