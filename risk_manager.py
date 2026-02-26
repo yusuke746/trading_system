@@ -72,7 +72,6 @@ def check_daily_loss_limit() -> dict:
             """,
             (today_str + "%",),
         ).fetchone()
-        conn.close()
         daily_pnl = float(rows["total_pnl"])
     except Exception as exc:
         logger.error("check_daily_loss_limit DB error: %s", exc)
@@ -132,7 +131,6 @@ def check_consecutive_losses() -> dict:
             LIMIT  50
             """,
         ).fetchall()
-        conn.close()
     except Exception as exc:
         logger.error("check_consecutive_losses DB error: %s", exc)
         return {"blocked": False, "consecutive_count": 0,
@@ -338,7 +336,6 @@ def reset_daily_stats(delete_records: bool = False) -> dict:
             conn.commit()
             message = f"補正レコード挿入: offset={offset:.2f} (当日PnLを0にリセット)"
 
-        conn.close()
         logger.warning("⚠️ リスクリセット実行: %s", message)
         return {
             "ok": True,

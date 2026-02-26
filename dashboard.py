@@ -240,39 +240,35 @@ def api_status():
         data["mt5_error"]     = str(e)
 
     conn = get_connection()
-    try:
-        # 直近シグナル10件
-        rows = conn.execute("""
-            SELECT received_at, source, signal_type, event, direction, price
-            FROM signals ORDER BY id DESC LIMIT 10
-        """).fetchall()
-        data["recent_signals"] = [dict(r) for r in rows]
+    # 直近シグナル10件
+    rows = conn.execute("""
+        SELECT received_at, source, signal_type, event, direction, price
+        FROM signals ORDER BY id DESC LIMIT 10
+    """).fetchall()
+    data["recent_signals"] = [dict(r) for r in rows]
 
-        # 直近AI判定10件
-        rows = conn.execute("""
-            SELECT created_at, decision, confidence, ev_score, reason
-            FROM ai_decisions ORDER BY id DESC LIMIT 10
-        """).fetchall()
-        data["recent_decisions"] = [dict(r) for r in rows]
+    # 直近AI判定10件
+    rows = conn.execute("""
+        SELECT created_at, decision, confidence, ev_score, reason
+        FROM ai_decisions ORDER BY id DESC LIMIT 10
+    """).fetchall()
+    data["recent_decisions"] = [dict(r) for r in rows]
 
-        # 本日集計
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        row = conn.execute("""
-            SELECT COUNT(*) as trades,
-                   SUM(pnl_usd) as pnl_usd,
-                   SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins
-            FROM trade_results WHERE closed_at LIKE ?
-        """, (f"{today}%",)).fetchone()
-        if row and row["trades"]:
-            win_rate = f"{(row['wins'] or 0) / row['trades'] * 100:.1f}%"
-            data["today"] = {
-                "trades":   row["trades"],
-                "pnl_usd":  round(row["pnl_usd"] or 0, 2),
-                "win_rate": win_rate,
-            }
-
-    finally:
-        conn.close()
+    # 本日集計
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    row = conn.execute("""
+        SELECT COUNT(*) as trades,
+               SUM(pnl_usd) as pnl_usd,
+               SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins
+        FROM trade_results WHERE closed_at LIKE ?
+    """, (f"{today}%",)).fetchone()
+    if row and row["trades"]:
+        win_rate = f"{(row['wins'] or 0) / row['trades'] * 100:.1f}%"
+        data["today"] = {
+            "trades":   row["trades"],
+            "pnl_usd":  round(row["pnl_usd"] or 0, 2),
+            "win_rate": win_rate,
+        }
 
     # ニュースフィルター状態（最新の状態を取得）
     try:
@@ -297,25 +293,21 @@ def api_loss_analysis():
     days = int(request.args.get("days", 30))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     conn = get_connection()
-    try:
-        rows = conn.execute("""
+    rows = conn.execute("""
             SELECT closed_at, mt5_ticket, outcome, pnl_usd, pnl_pips,
                    duration_min, loss_reason, missed_context, prompt_hint
             FROM trade_results
             WHERE outcome = 'sl_hit' AND closed_at >= ?
             ORDER BY closed_at DESC
         """, (since,)).fetchall()
-        return jsonify([dict(r) for r in rows])
-    finally:
-        conn.close()
+    return jsonify([dict(r) for r in rows])
 
 
 @dashboard_bp.route("/api/prompt_hints", methods=["GET"])
 def api_prompt_hints():
     """プロンプト改善ヒントの頻出パターント10"""
     conn = get_connection()
-    try:
-        rows = conn.execute("""
+    rows = conn.execute("""
             SELECT prompt_hint, COUNT(*) as cnt
             FROM trade_results
             WHERE prompt_hint IS NOT NULL AND prompt_hint != ''
@@ -323,9 +315,7 @@ def api_prompt_hints():
             ORDER BY cnt DESC
             LIMIT 10
         """).fetchall()
-        return jsonify([dict(r) for r in rows])
-    finally:
-        conn.close()
+    return jsonify([dict(r) for r in rows])
 
 
 @dashboard_bp.route("/api/stats", methods=["GET"])
@@ -335,8 +325,7 @@ def api_stats():
     days = int(request.args.get("days", 30))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     conn = get_connection()
-    try:
-        row = conn.execute("""
+    row = conn.execute("""
             SELECT
                 COUNT(*)                                     as total_trades,
                 SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
@@ -347,13 +336,11 @@ def api_stats():
                 AVG(pnl_pips)                                as avg_pips
             FROM trade_results WHERE closed_at >= ?
         """, (since,)).fetchone()
-        result = dict(row) if row else {}
-        if result.get("total_trades"):
-            result["win_rate"] = round(
-                result["wins"] / result["total_trades"] * 100, 1)
-        return jsonify(result)
-    finally:
-        conn.close()
+    result = dict(row) if row else {}
+    if result.get("total_trades"):
+        result["win_rate"] = round(
+            result["wins"] / result["total_trades"] * 100, 1)
+    return jsonify(result)
 
 
 @dashboard_bp.route("/api/optimizer", methods=["GET"])

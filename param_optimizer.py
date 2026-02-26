@@ -63,7 +63,6 @@ def _fetch_recent_trades(n: int = 20) -> list[dict]:
             """,
             (n,),
         ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
     except Exception as exc:
         logger.error("param_optimizer DB error: %s", exc)
@@ -90,7 +89,6 @@ def _save_param_history(sl_mult: float, tp_mult: float,
             ),
         )
         conn.commit()
-        conn.close()
     except Exception as exc:
         logger.error("param_history 保存エラー: %s", exc)
 
@@ -306,7 +304,6 @@ def get_latest_from_db() -> dict | None:
             SELECT * FROM param_history ORDER BY id DESC LIMIT 1
             """
         ).fetchone()
-        conn.close()
         return dict(row) if row else None
     except Exception as exc:
         logger.error("get_latest_from_db エラー: %s", exc)
@@ -325,7 +322,6 @@ def get_history(n: int = 20) -> list[dict]:
             """,
             (n,),
         ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
     except Exception as exc:
         logger.error("get_history エラー: %s", exc)
