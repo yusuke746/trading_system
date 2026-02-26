@@ -126,7 +126,6 @@ class BatchProcessor:
                 LIMIT 1
             """, (since_15m,)).fetchall()
 
-            conn.close()
         except Exception as e:
             logger.error("_detect_reversal_setup DB error: %s", e)
             return None

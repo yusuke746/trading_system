@@ -229,7 +229,6 @@ def _get_trading_stats(recent_n: int = 20) -> dict:
             """,
             (recent_n,),
         ).fetchall()
-        conn.close()
     except Exception as e:
         logger.error("_get_trading_stats DB error: %s", e)
         return {"win_rate": 0.5, "avg_pnl_usd": 0.0, "consecutive_losses": 0, "trade_count": 0}
@@ -347,8 +346,9 @@ def _fetch_structure_signals(event: str, window_sec: int) -> list:
             ORDER BY received_at DESC
         """, (event, since)).fetchall()
         return [dict(r) for r in rows]
-    finally:
-        conn.close()
+    except Exception as e:
+        logger.error("_fetch_structure_signals DB error: %s", e)
+        return []
 
 
 def _fetch_macro_zones_with_direction(window_sec: int, current_price: float) -> list:
