@@ -6,28 +6,27 @@ AI Trading System v2.0
 SYSTEM_CONFIG = {
     # ── 取引設定 ────────────────────────────────
     "symbol":               "GOLD",   # XMTrading のシンボル名（XAUUSD ではない）
-    "max_positions":          5,       # 1 → 5 に変更
-    "max_total_risk_percent": 0.10,    # 新規追加：口座残高の10%を上限
+    "max_positions":          5,       # 同時保有可能な最大ポジション数
+    "max_total_risk_percent": 0.10,    # 口座残高の10%を上限とする合計リスクエクスポージャー上限（max_positions=5対応）
     "min_free_margin":        500.0,
 
     # ── リスク管理 ───────────────────────────────
     "risk_percent":         2.0,
     # GOLD 5200ドル水準でATR15m≈ 8〜15ドル。SL=ATR×2.0で15〜20ドルの雑音耐性を確保
-    "atr_sl_multiplier":    2.0,   # 1.5 → 2.0
-    "atr_tp_multiplier":    3.0,   # 2.5 → 3.0（RR=1.5維持）
-    "max_sl_pips":          80.0,  # 50 → 80（dollar単位）
-    "min_sl_pips":          8.0,   # 5 → 8（dollar単位）
+    "atr_sl_multiplier":    2.0,
+    "atr_tp_multiplier":    3.0,   # RR=1.5維持
+    "max_sl_pips":          80.0,  # dollar単位
+    "min_sl_pips":          8.0,   # dollar単位
     "pip_points":           10,    # GOLD: 1pip = 10point = $0.10
     # ATRボラティリティフィルター（異常値でエントリー禁止）
     "atr_volatility_max":   30.0,  # 30ドル超: 指標・重要イベント直後等
     "atr_volatility_min":   3.0,   # 3ドル未満: 値動きなし（スプレッド費用対効果悪化）
     # 追加リスク管理（risk_manager.py）
     # 1日の確定損失上限: 口座残高に対するパーセンテージ（負値）
-    # 例: -5.0 → 残高の5%を超えて負けたら自動停止（risk_percent=1.0%なら約5負け相当）
-    "max_daily_loss_percent":   -10.0,    # 1日の確定損失上限（残高比率%）
+    # risk_percent=2.0%なら細4負け相当で停止。一般的なリスク管理基準（5%）に準拠。
+    "max_daily_loss_percent":   -5.0,    # 1日の確定損失上限（残高比率%）
     "max_consecutive_losses":   3,       # 連続SL被弾で自動停止
-    "gap_block_threshold_usd":  15.0,    # 週明けギャップブロック閾値（ドル）
-
+    "gap_block_threshold_usd":  15.0,    # 週明けギャップブロック閾値（ドル）    "fallback_balance":         10000.0, # MT5未接続時のフォールバック残高（ドル）
     # ── 注文設定 ─────────────────────────────────
     "deviation":            20,
     "magic_number":         20260223,
@@ -63,14 +62,13 @@ SYSTEM_CONFIG = {
     "news_block_before_min":    30,    # 発表前30分ブロック
     "news_block_after_min":     30,    # 発表後30分ブロック
     "news_target_currencies":   ["USD", "EUR"],
-    "news_min_importance":      2,     # MT5重要度2以上
-
+    "news_min_importance":      2,     # MT5重要度2以上    "news_filter_fail_safe":    True,  # True=取得失敗時はエントリーブロック / False=許可（安全側をデフォルト）
     # ── ポジション管理 v2追加 ──────────────────
     "partial_close_ratio":      0.5,   # 第1TPで50%決済
-    "partial_tp_atr_mult":      2.0,   # 1.5 → 2.0（SL乗数に合わせて修正）
+    "partial_tp_atr_mult":      2.0,   # SL乗数に合わせて設定
     "be_trigger_atr_mult":      1.0,   # BE発動 = ATR×1.0含み益（早めに発動）
-    "be_buffer_pips":           2.0,   # BEの余裕幅
-    "trailing_step_atr_mult":   1.5,   # 1.0 → 1.5（トレーリング幅を拡大）
+    "be_buffer_pips":           2.0,   # BEの予裕幅
+    "trailing_step_atr_mult":   1.5,   # トレーリング幅（ATR基準）
     "pm_check_interval_sec":    10,
 
     # ── 逆張り自動昇格設定 ────────────────────────

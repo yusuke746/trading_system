@@ -71,9 +71,10 @@ XMTrading / XAUUSD 専用 完全自動取引システム
 
 1. 🗞 **ニュースフィルター** — 重要経済指標の前後30分は一切エントリーしない
 2. 🕐 **市場時間チェック** — デイリーブレイク（23:45〜1:00 UTC）はエントリーしない
-3. 📉 **当日損失制限** — 1日の損失が $200 を超えたら自動停止
+3. 📉 **当日損失制限** — 口座残高の5%を超えたら自動停止
 4. 🔴 **連続損失制限** — 3連敗したら自動停止
 5. 📊 **ギャップリスク** — 月曜早朝の週明けギャップが $15 以上なら停止
+6. 💼 **複数ポジション管理** — 最大5ポジション同時保有（合計リスク上限 10%）
 
 ---
 
@@ -101,10 +102,9 @@ XMTrading / XAUUSD 専用 完全自動取引システム
 | 項目 | 評価 | 詳細 |
 |---|---|---|
 | XAUUSD専用設計 | ★★★☆☆ | シンボルや計算式がゴールド専用にハードコードされており、他の通貨ペアへの転用が難しい。 |
-| テストコードの不足 | ★★☆☆☆ | 自動テストが存在しない。リスク管理やポジション計算など、バグが致命的なロジックにユニットテストが欲しい。 |
+| テストコードの不足 | ★★★☆☆ | 自動テストが存在する（49件以上）が、さらに拡充の余地がある。 |
 | AIプロンプトの固定化 | ★★★☆☆ | `prompt_builder.py` のプロンプトが固定文字列のため、市場環境の変化に対して手動更新が必要。 |
-| バックテスト機能なし | ★★★☆☆ | 過去データでの戦略検証機能がなく、パラメータ調整が実運用ベースになっている。 |
-| 1ポジション制限 | ★★★☆☆ | `max_positions=1` の固定設定。複数戦略の同時運用や分散エントリーには対応していない。 |
+| バックテスト機能なし | ★★★★☆ | `backtester.py` で過去データでの戦略検証機能を実装済み。AIモックによるシミュレーションも可能。 |
 
 ---
 
@@ -136,6 +136,13 @@ AI活用度        ████████████████      80点
 2. ✅ **バックテスト機能の実装**（`backtester.py`）
 3. ✅ **パラメータの動的最適化**（`param_optimizer.py`）
 
+以下の5改善が v2.2 で実施されました：
+1. ✅ **バックテストにAI判断を組み込む**（`AiJudgeMock`・`use_ai_mock`フラグ・CLIオプション）
+2. ✅ **SQLite接続のコネクションプール化**（`ConnectionPool`・スレッドローカル再利用）
+3. ✅ **ドキュメントとconfigの整合性修正**（README更新・リスク設定根拠テーブル追加）
+4. ✅ **ニュースフィルターのフェイルセーフ**（取得失敗時にブロック・`fail_safe_triggered`キー）
+5. ✅ **日次損失上限を-10%→-5%に見直し**（残高比率判定・フォールバック残高をconfigから取得）
+
 ---
 
 ## 🧪 ユニットテスト
@@ -147,16 +154,23 @@ cd trading_system
 python -m pytest tests/ -v
 ```
 
-### テスト一覧（49件）
+### テスト一覧（77件）
 
 | ファイル | テストクラス | 件数 | 内容 |
 |---|---|---|---|
-| `tests/test_risk_manager.py` | TestCheckDailyLossLimit | 7件 | 当日損失上限チェック（正常・超過・DB誤り） |
-| `tests/test_risk_manager.py` | TestCheckConsecutiveLosses | 7件 | 連続損失チェック（各パターン） |
+| `tests/test_risk_manager.py` | TestCheckDailyLossLimit | 7件 | 当日損失上限チェック（残高比率判定・正常・超過・DB誤り） |
+| `tests/test_risk_manager.py` | TestCheckConsecutiveLosses | 12件 | 連続損失チェック（各パターン・時間ベースリセット） |
 | `tests/test_risk_manager.py` | TestCheckGapRisk | 5件 | 週明けギャップチェック（月曜・他曜日・MT5なし） |
 | `tests/test_risk_manager.py` | TestRunAllRiskChecks | 5件 | 統合チェック（各ブロック条件・優先順位） |
 | `tests/test_executor.py` | TestBuildOrderParams | 18件 | SL/TP計算・ロット計算・ATRフィルター・指値注文 |
 | `tests/test_executor.py` | TestPreExecutionCheck | 6件 | 執行前チェック順序・各ブロック条件 |
+| `tests/test_backtester.py` | TestAiJudgeMock | 6件 | AiJudgeMock の approve/reject 確率検証 |
+| `tests/test_backtester.py` | TestBacktestEngineAiMock | 6件 | use_ai_mock フラグの動作・トレード数・summary |
+| `tests/test_database.py` | TestConnectionPool | 6件 | スレッドローカル接続・同一スレッド再利用・別スレッド分離 |
+| `tests/test_database.py` | TestModuleGetConnection | 2件 | モジュールレベルの get_connection() 動作確認 |
+| `tests/test_news_filter.py` | TestNewsFilterFailSafe | 5件 | MT5未インストール時の fail_safe 動作 |
+| `tests/test_news_filter.py` | TestNewsFilterApiError | 2件 | カレンダーAPI取得失敗時の fail_safe 動作 |
+| `tests/test_news_filter.py` | TestNewsFilterReturnStructure | 1件 | 全ケースで fail_safe_triggered キー存在確認 |
 
 ---
 
@@ -261,6 +275,18 @@ LIMIT  10;
 
 ---
 
+## ⚙️ リスク設定値の根拠
+
+| 設定項目 | 値 | 根拠 |
+|---|---|---|
+| max_daily_loss_percent | -5.0% | risk_percent=2%で約2.5連敗分に相当。一般的なリスク管理基準（5%）に準拠 |
+| max_consecutive_losses | 3 | 3連敗はドローダウン約6%。戦略不調の早期検知 |
+| consecutive_loss_reset_hours | 24h | 24時間経過した古い損失は連続カウントから除外。翌日は新鮮な状態でトレード開始可能（0で無効化） |
+| gap_block_threshold_usd | $15 | GOLDの平均スプレッド+スリッページの約3倍を閾値とする |
+| max_positions | 5 | 最大同時リスクは max_total_risk_percent=10% で上限管理 |
+
+---
+
 ## システム概要
 
 | コンポーネント | 技術 | 役割 |
@@ -305,7 +331,10 @@ trading_system/
 ├── tests/
 │   ├── __init__.py
 │   ├── test_risk_manager.py  # risk_manager.py ユニットテスト（v2.1追加）
-│   └── test_executor.py      # executor.py ユニットテスト（v2.1追加）
+│   ├── test_executor.py      # executor.py ユニットテスト（v2.1追加）
+│   ├── test_backtester.py    # backtester.py ユニットテスト（v2.2追加）
+│   ├── test_database.py      # database.py ユニットテスト（v2.2追加）
+│   └── test_news_filter.py   # news_filter.py ユニットテスト（v2.2追加）
 ├── requirements.txt       # Python依存ライブラリ
 ├── .env.example           # 環境変数テンプレート
 ├── .gitignore             # Git除外設定
@@ -395,8 +424,8 @@ python app.py
 ## ポジション管理（v2）
 
 1. **ブレークイーブン**: 含み益 ATR×1.0 到達時にSLをエントリー+2pipsへ移動
-2. **第1TP（50%部分決済）**: 含み益 ATR×1.5 到達時に50%を確定
-3. **トレーリングストップ**: 部分決済後、SL = 最高値 - ATR×1.0 で追跡
+2. **第1TP（50%部分決済）**: 含み益 ATR×2.0 到達時に50%を確定
+3. **トレーリングストップ**: 部分決済後、SL = 最高値 - ATR×1.5 で追跡
 
 ---
 

@@ -3,8 +3,10 @@ database.py - SQLite DB初期化・接続管理
 AI Trading System v2.0
 """
 
+import atexit
 import sqlite3
 import logging
+import threading
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "trading_log.db"
@@ -12,18 +14,76 @@ DB_PATH = Path(__file__).parent / "trading_log.db"
 logger = logging.getLogger(__name__)
 
 
+# ──────────────────────────────────────────────────────────
+# スレッドローカル接続プール
+# ──────────────────────────────────────────────────────────
+
+class ConnectionPool:
+    """
+    threading.local() を使ってスレッドごとに1本の接続を使い回す軽量プール。
+
+    Args:
+        db_path:   SQLite DB ファイルパス
+        pool_size: 将来の拡張用（現在はスレッド単位で1接続のみ）
+    """
+
+    def __init__(self, db_path: str, pool_size: int = 5):
+        self._db_path    = db_path
+        self._pool_size  = pool_size
+        self._local      = threading.local()
+        # 全スレッドの接続を追跡（close_all 用）
+        self._all_conns: list[sqlite3.Connection] = []
+        self._lock       = threading.Lock()
+
+    def _make_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        with self._lock:
+            self._all_conns.append(conn)
+        return conn
+
+    def get_connection(self) -> sqlite3.Connection:
+        """
+        現在のスレッド用の接続を返す。
+        初回呼び出し時に接続を作成し、以降は使い回す。
+        """
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._make_conn()
+            self._local.conn = conn
+        return conn
+
+    def close_all(self) -> None:
+        """全スレッドの接続をクローズする（シャットダウン用）"""
+        with self._lock:
+            for conn in self._all_conns:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._all_conns.clear()
+        # 現スレッドのローカル接続もリセット
+        self._local.conn = None
+
+
+# モジュールレベルのシングルトンプール
+_pool = ConnectionPool(str(DB_PATH))
+atexit.register(_pool.close_all)
+
+
 def get_connection() -> sqlite3.Connection:
-    """スレッドセーフなDB接続を返す"""
+    """スレッドセーフなDB接続を返す（スレッドローカルプールから取得）"""
+    return _pool.get_connection()
+
+
+def init_db() -> None:
+    """テーブルを初期化する（存在しなければ作成）。初期化専用の独立接続を使用。"""
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
-
-
-def init_db() -> None:
-    """テーブルを初期化する（存在しなければ作成）"""
-    conn = get_connection()
     try:
         c = conn.cursor()
 

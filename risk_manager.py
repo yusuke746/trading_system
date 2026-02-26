@@ -24,14 +24,16 @@ from database import get_connection
 logger = logging.getLogger(__name__)
 
 # ── 設定値 ──────────────────────────────────────────────────
-MAX_DAILY_LOSS_PCT    = SYSTEM_CONFIG.get("max_daily_loss_percent",  -5.0)  # 残高比率%
-MAX_CONSECUTIVE_LOSS  = SYSTEM_CONFIG.get("max_consecutive_losses",   3)
-GAP_BLOCK_THRESHOLD   = SYSTEM_CONFIG.get("gap_block_threshold_usd",  15.0)
-SYMBOL                = SYSTEM_CONFIG.get("symbol", "XAUUSD")
+MAX_DAILY_LOSS_PCT           = SYSTEM_CONFIG.get("max_daily_loss_percent",       -5.0)
+MAX_CONSECUTIVE_LOSS         = SYSTEM_CONFIG.get("max_consecutive_losses",        3)
+CONSECUTIVE_LOSS_RESET_HOURS = SYSTEM_CONFIG.get("consecutive_loss_reset_hours", 24)
+GAP_BLOCK_THRESHOLD          = SYSTEM_CONFIG.get("gap_block_threshold_usd",      15.0)
+SYMBOL                       = SYSTEM_CONFIG.get("symbol", "XAUUSD")
+FALLBACK_BALANCE             = SYSTEM_CONFIG.get("fallback_balance",             10000.0)
 
 
 def _get_balance() -> float:
-    """MT5から口座残高を取得する。取得失敗時は2,000ドルをフォールバックとして使用"""
+    """MT5から口座残高を取得する。取得失敗時は config の fallback_balance を使用"""
     if MT5_AVAILABLE:
         try:
             acc = mt5.account_info()
@@ -39,7 +41,7 @@ def _get_balance() -> float:
                 return acc.balance
         except Exception:
             pass
-    return 2_000.0
+    return FALLBACK_BALANCE
 
 
 # ────────────────────────────────────────────────────────────
@@ -103,14 +105,23 @@ def check_consecutive_losses() -> dict:
     複数ポジション同時決済に対応：
     closed_at が ±10秒以内の sl_hit は「1回の連続損失」としてまとめてカウントする。
 
+    時間ベースリセット：
+    CONSECUTIVE_LOSS_RESET_HOURS > 0 の場合、その時間より古いトレードは
+    連続カウントから除外する（例: 24時間前より古い損失は引き継がない）。
+
     Returns:
         {
-            "blocked": bool,
+            "blocked":           bool,
             "consecutive_count": int,
-            "reason": str
+            "reason":            str,
+            "reset_hours":       int,   # 適用中のリセット時間（0=無効）
         }
     """
-    n = MAX_CONSECUTIVE_LOSS
+    from datetime import timedelta
+
+    n           = MAX_CONSECUTIVE_LOSS
+    reset_hours = CONSECUTIVE_LOSS_RESET_HOURS
+
     try:
         conn = get_connection()
         rows = conn.execute(
@@ -124,20 +135,42 @@ def check_consecutive_losses() -> dict:
         conn.close()
     except Exception as exc:
         logger.error("check_consecutive_losses DB error: %s", exc)
-        return {"blocked": False, "consecutive_count": 0, "reason": "db_error"}
+        return {"blocked": False, "consecutive_count": 0,
+                "reason": "db_error", "reset_hours": reset_hours}
 
     if not rows:
-        return {"blocked": False, "consecutive_count": 0, "reason": "insufficient_data"}
-
-    # ── 同時決済グループにまとめる（±10秒以内のsl_hitを1グループ）──
-    from datetime import timedelta
+        return {"blocked": False, "consecutive_count": 0,
+                "reason": "insufficient_data", "reset_hours": reset_hours}
 
     def _parse_dt(s):
         try:
-            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            # タイムゾーン情報がない場合は UTC として扱う
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
         except Exception:
             return None
 
+    # ── 時間ベースリセット：cutoff より古いトレードを除外 ──────
+    if reset_hours > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=reset_hours)
+        rows = [
+            r for r in rows
+            if (_parse_dt(r["closed_at"]) or datetime.min.replace(tzinfo=timezone.utc))
+               >= cutoff
+        ]
+
+    if not rows:
+        # cutoff によって全件が除外された → 連続損失リセット済み
+        logger.info(
+            "連続損失カウント: 直近 %d 時間以内のトレードなし → カウントリセット",
+            reset_hours,
+        )
+        return {"blocked": False, "consecutive_count": 0,
+                "reason": "reset_by_time", "reset_hours": reset_hours}
+
+    # ── 同時決済グループにまとめる（±10秒以内のsl_hitを1グループ）──
     grouped = []   # [{"outcome": str, "closed_at": datetime}, ...]
     for row in rows:
         outcome   = row["outcome"]
@@ -167,13 +200,15 @@ def check_consecutive_losses() -> dict:
     if len(recent) < n:
         # まだ充分なデータがない
         count = sum(1 for g in recent if g["outcome"] == "sl_hit")
-        return {"blocked": False, "consecutive_count": count, "reason": "insufficient_data"}
+        return {"blocked": False, "consecutive_count": count,
+                "reason": "insufficient_data", "reset_hours": reset_hours}
 
     all_sl = all(g["outcome"] == "sl_hit" for g in recent)
     if all_sl:
         reason = f"直近 {n} 件が連続SL被弾 → 取引停止"
         logger.warning("RISK: %s", reason)
-        return {"blocked": True, "consecutive_count": n, "reason": reason}
+        return {"blocked": True, "consecutive_count": n,
+                "reason": reason, "reset_hours": reset_hours}
 
     # 実際の連続損失数（直近から数える）
     count = 0
@@ -183,7 +218,8 @@ def check_consecutive_losses() -> dict:
         else:
             break
 
-    return {"blocked": False, "consecutive_count": count, "reason": "ok"}
+    return {"blocked": False, "consecutive_count": count,
+            "reason": "ok", "reset_hours": reset_hours}
 
 
 # ────────────────────────────────────────────────────────────

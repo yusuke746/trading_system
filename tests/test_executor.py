@@ -66,9 +66,12 @@ class TestBuildOrderParams(unittest.TestCase):
              order_type="market", limit_price=None, symbol="XAUUSD"):
         trigger   = _make_trigger(direction, price, symbol)
         ai_result = _make_ai_result(order_type, limit_price)
+        # get_current_session を London（調整係数 1.0）に固定してテストを決定論的にする
         with patch("executor._get_atr15m", return_value=atr), \
              patch("executor.param_optimizer.get_live_params",
-                   return_value=_live_params_default()):
+                   return_value=_live_params_default()), \
+             patch("executor.get_current_session",
+                   return_value={"session": "London"}):
             import executor
             return executor.build_order_params(trigger, ai_result)
 

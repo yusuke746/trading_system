@@ -25,6 +25,7 @@ BLOCK_AFTER_MIN      = SYSTEM_CONFIG["news_block_after_min"]      # 30
 TARGET_CURRENCIES    = set(SYSTEM_CONFIG["news_target_currencies"])  # USD, EUR
 MIN_IMPORTANCE       = SYSTEM_CONFIG["news_min_importance"]        # 2
 NEWS_FILTER_ENABLED  = SYSTEM_CONFIG["news_filter_enabled"]
+NEWS_FILTER_FAIL_SAFE = SYSTEM_CONFIG.get("news_filter_fail_safe", True)
 
 
 def check_news_filter(symbol: str = "XAUUSD") -> dict:
@@ -33,17 +34,25 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
 
     Returns:
         {
-            "blocked":    bool,
-            "reason":     str,
-            "resumes_at": str | None   # ISO8601 UTC
+            "blocked":           bool,
+            "reason":            str,
+            "resumes_at":        str | None   # ISO8601 UTC
+            "fail_safe_triggered": bool       # フェイルセーフ発動時 True
         }
     """
     if not NEWS_FILTER_ENABLED:
-        return {"blocked": False, "reason": "ニュースフィルター無効", "resumes_at": None}
+        return {"blocked": False, "reason": "ニュースフィルター無効",
+                "resumes_at": None, "fail_safe_triggered": False}
 
     if not MT5_AVAILABLE:
-        logger.warning("MT5未インストール - ニュースフィルタースキップ")
-        return {"blocked": False, "reason": "MT5未インストール", "resumes_at": None}
+        logger.warning("MT5未インストール - ニュースフィルター: fail_safe=%s", NEWS_FILTER_FAIL_SAFE)
+        if NEWS_FILTER_FAIL_SAFE:
+            reason = "MT5未インストール（安全のためブロック）"
+            log_event("news_filter_fail_safe", reason, level="WARNING")
+            return {"blocked": True, "reason": reason,
+                    "resumes_at": None, "fail_safe_triggered": True}
+        return {"blocked": False, "reason": "MT5未インストール",
+                "resumes_at": None, "fail_safe_triggered": False}
 
     now = datetime.now(timezone.utc)
     look_ahead = now + timedelta(hours=2)
@@ -54,11 +63,22 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
         msg = f"MT5カレンダーAPI取得失敗: {e}"
         logger.warning(msg)
         log_event("news_filter_api_error", msg, level="WARNING")
-        # 取得失敗はエントリーを許可（過剰ブロック防止）
-        return {"blocked": False, "reason": msg, "resumes_at": None}
+        if NEWS_FILTER_FAIL_SAFE:
+            reason = "カレンダー取得失敗（安全のためブロック）"
+            log_event("news_filter_fail_safe", reason, level="WARNING")
+            return {"blocked": True, "reason": reason,
+                    "resumes_at": None, "fail_safe_triggered": True}
+        return {"blocked": False, "reason": msg,
+                "resumes_at": None, "fail_safe_triggered": False}
 
     if events is None:
-        return {"blocked": False, "reason": "カレンダーイベントなし", "resumes_at": None}
+        if NEWS_FILTER_FAIL_SAFE:
+            reason = "カレンダー取得失敗（安全のためブロック）"
+            log_event("news_filter_fail_safe", reason, level="WARNING")
+            return {"blocked": True, "reason": reason,
+                    "resumes_at": None, "fail_safe_triggered": True}
+        return {"blocked": False, "reason": "カレンダーイベントなし",
+                "resumes_at": None, "fail_safe_triggered": False}
 
     for event in events:
         # 通貨フィルター
@@ -99,9 +119,11 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
             logger.info("🚫 %s → エントリー拒否 / 再開予定: %s", reason, resumes_at)
 
             return {
-                "blocked":    True,
-                "reason":     reason,
-                "resumes_at": resumes_at,
+                "blocked":             True,
+                "reason":              reason,
+                "resumes_at":          resumes_at,
+                "fail_safe_triggered": False,
             }
 
-    return {"blocked": False, "reason": "ニュースフィルター通過", "resumes_at": None}
+    return {"blocked": False, "reason": "ニュースフィルター通過",
+            "resumes_at": None, "fail_safe_triggered": False}

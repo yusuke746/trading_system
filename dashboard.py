@@ -206,7 +206,7 @@ def api_status():
     """MT5状態・口座サマリー・本日集計・直近シグナル・AI判定・オープンポジション"""
     data: dict = {"mt5_connected": False, "account": {}, "today": {},
                   "recent_signals": [], "recent_decisions": [],
-                  "open_positions": []}
+                  "open_positions": [], "news_filter": {}}
 
     # MT5情報
     try:
@@ -273,6 +273,19 @@ def api_status():
 
     finally:
         conn.close()
+
+    # ニュースフィルター状態（最新の状態を取得）
+    try:
+        from news_filter import check_news_filter
+        nf = check_news_filter()
+        data["news_filter"] = {
+            "blocked":             nf.get("blocked", False),
+            "reason":              nf.get("reason", ""),
+            "resumes_at":          nf.get("resumes_at"),
+            "fail_safe_triggered": nf.get("fail_safe_triggered", False),
+        }
+    except Exception as e:
+        data["news_filter"] = {"error": str(e)}
 
     return jsonify(data)
 
@@ -380,22 +393,26 @@ def api_backtest():
     """
     MT5 または DB のデータを使ってバックテストを実行し、結果を返す。
     パラメータ:
-      bars     : 取得バー数（デフォルト 1000）
-      sl_mult  : ATR SL乗数（デフォルト config 値）
-      tp_mult  : ATR TP乗数（デフォルト config 値）
-      strategy : breakout | rsi（デフォルト breakout）
-      grid     : 1 を指定するとグリッドサーチ結果を返す
+      bars            : 取得バー数（デフォルト 1000）
+      sl_mult         : ATR SL乗数（デフォルト config 値）
+      tp_mult         : ATR TP乗数（デフォルト config 値）
+      strategy        : breakout | rsi（デフォルト breakout）
+      grid            : 1 を指定するとグリッドサーチ結果を返す
+      ai_mock         : 1 を指定するとAIモックフィルターを有効化
+      ai_approve_rate : AIモックの承認率（デフォルト 0.6）
     """
     from flask import request
     from backtester import BacktestEngine, load_mt5_data, grid_search
     from backtester import atr_breakout_signal, rsi_reversal_signal
     from config import SYSTEM_CONFIG
 
-    bars     = int(request.args.get("bars", 1000))
-    sl_mult  = request.args.get("sl_mult",  type=float)
-    tp_mult  = request.args.get("tp_mult",  type=float)
-    strategy = request.args.get("strategy", "breakout")
-    do_grid  = request.args.get("grid", "0") == "1"
+    bars            = int(request.args.get("bars", 1000))
+    sl_mult         = request.args.get("sl_mult",  type=float)
+    tp_mult         = request.args.get("tp_mult",  type=float)
+    strategy        = request.args.get("strategy", "breakout")
+    do_grid         = request.args.get("grid", "0") == "1"
+    use_ai_mock     = request.args.get("ai_mock", "0") == "1"
+    ai_approve_rate = float(request.args.get("ai_approve_rate", 0.6))
 
     signal_func = rsi_reversal_signal if strategy == "rsi" else atr_breakout_signal
 
@@ -415,7 +432,15 @@ def api_backtest():
         params["atr_tp_multiplier"] = tp_mult
 
     engine = BacktestEngine(df, params)
-    result = engine.run(signal_func)
+    result = engine.run(signal_func,
+                        use_ai_mock=use_ai_mock,
+                        ai_approve_rate=ai_approve_rate)
+
+    ai_filter_effect = None
+    if use_ai_mock:
+        base_result      = engine.run(signal_func, use_ai_mock=False)
+        ai_filter_effect = round(result.win_rate * 100 - base_result.win_rate * 100, 2)
+
     return jsonify({
         "n_trades":         result.n_trades,
         "win_rate":         round(result.win_rate, 3),
@@ -426,4 +451,7 @@ def api_backtest():
         "sharpe_ratio":     result.sharpe_ratio,
         "params":           result.params,
         "bars":             bars,
+        "ai_mock":          use_ai_mock,
+        "ai_approve_rate":  ai_approve_rate if use_ai_mock else None,
+        "ai_filter_effect": ai_filter_effect,
     })

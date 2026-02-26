@@ -20,6 +20,7 @@ CLIからの使用方法:
 
 import argparse
 import logging
+import random
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -46,6 +47,47 @@ _DEFAULT_PARAMS = {
     "atr_period":         14,
     "signal_lookback":    20,   # シグナル判定に使う直近バー数
 }
+
+
+# ──────────────────────────────────────────────────────────
+# AIモッククラス
+# ──────────────────────────────────────────────────────────
+
+class AiJudgeMock:
+    """
+    バックテスト用AIモック。
+    ai_judge.py の ask_ai() と同じ dict 構造を返し、
+    approve_rate の確率で "approve" を返す。
+    """
+
+    def __init__(self, approve_rate: float = 0.6, rng: random.Random | None = None):
+        self.approve_rate = approve_rate
+        self._rng = rng or random.Random(42)
+
+    def judge(self, bar_index: int, direction: str,
+              atr: float, context: dict) -> dict:
+        """
+        Returns:
+            {
+                "decision":   "approve" | "reject",
+                "confidence": float,  # 0.6〜0.9
+                "ev_score":   float,  # 0.2〜0.5
+                "reason":     str,
+            }
+        """
+        decision   = "approve" if self._rng.random() < self.approve_rate else "reject"
+        confidence = round(self._rng.uniform(0.6, 0.9), 3)
+        ev_score   = round(self._rng.uniform(0.2, 0.5), 3)
+        reason     = (
+            f"mock: approve_rate={self.approve_rate:.0%}, "
+            f"bar={bar_index}, dir={direction}"
+        )
+        return {
+            "decision":   decision,
+            "confidence": confidence,
+            "ev_score":   ev_score,
+            "reason":     reason,
+        }
 
 
 # ──────────────────────────────────────────────────────────
@@ -157,7 +199,9 @@ class BacktestResult:
         std = variance ** 0.5
         return round(avg / std, 3) if std > 0 else 0.0
 
-    def summary(self) -> str:
+    def summary(self, use_ai_mock: bool = False,
+                ai_approve_rate: float = 0.6,
+                ai_filter_effect: float | None = None) -> str:
         lines = [
             "=" * 50,
             "  バックテスト結果",
@@ -171,8 +215,17 @@ class BacktestResult:
             "-" * 50,
             f"  SL乗数         : {self.params.get('atr_sl_multiplier')}",
             f"  TP乗数         : {self.params.get('atr_tp_multiplier')}",
-            "=" * 50,
         ]
+        if use_ai_mock:
+            lines.append(
+                f"  AIモック       : 有効 (承認率 {ai_approve_rate * 100:.1f}%)"
+            )
+            if ai_filter_effect is not None:
+                sign = "+" if ai_filter_effect >= 0 else ""
+                lines.append(
+                    f"  AIフィルター効果: {sign}{ai_filter_effect:.2f}% vs AIなし"
+                )
+        lines.append("=" * 50)
         return "\n".join(lines)
 
 
@@ -303,13 +356,16 @@ class BacktestEngine:
     OHLCV データに対してATRベースの戦略をシミュレートするエンジン。
 
     Args:
-        df:     OHLCV DataFrame（列: open, high, low, close, volume）
-        params: パラメータ dict（省略時はデフォルト値を使用）
+        df:          OHLCV DataFrame（列: open, high, low, close, volume）
+        params:      パラメータ dict（省略時はデフォルト値を使用）
+        random_seed: AiJudgeMock の乱数シード（再現性確保用）
     """
 
-    def __init__(self, df: pd.DataFrame, params: dict | None = None):
-        self.df     = df.copy().reset_index(drop=True)
-        self.params = {**_DEFAULT_PARAMS, **(params or {})}
+    def __init__(self, df: pd.DataFrame, params: dict | None = None,
+                 random_seed: int = 42):
+        self.df          = df.copy().reset_index(drop=True)
+        self.params      = {**_DEFAULT_PARAMS, **(params or {})}
+        self.random_seed = random_seed
         self._prepare()
 
     def _prepare(self):
@@ -318,7 +374,9 @@ class BacktestEngine:
         self.df["atr"] = _compute_atr(self.df, period)
 
     def run(self,
-            signal_func: Callable | None = None) -> BacktestResult:
+            signal_func: Callable | None = None,
+            use_ai_mock: bool = False,
+            ai_approve_rate: float = 0.6) -> BacktestResult:
         """
         バックテストを実行する。
 
@@ -331,6 +389,12 @@ class BacktestEngine:
         """
         if signal_func is None:
             signal_func = atr_breakout_signal
+
+        # AIモックの初期化
+        ai_mock: AiJudgeMock | None = None
+        if use_ai_mock:
+            rng     = random.Random(self.random_seed)
+            ai_mock = AiJudgeMock(approve_rate=ai_approve_rate, rng=rng)
 
         p         = self.params
         balance   = p["initial_balance"]
@@ -450,6 +514,17 @@ class BacktestEngine:
             if direction is None:
                 continue
 
+            # AIモックフィルター
+            if ai_mock is not None:
+                ai_result = ai_mock.judge(
+                    bar_index=i,
+                    direction=direction,
+                    atr=atr,
+                    context={},
+                )
+                if ai_result["decision"] == "reject":
+                    continue
+
             # SL/TP計算
             sl_dollar = round(atr * sl_mult, 3)
             sl_dollar = max(min_sl, min(max_sl, sl_dollar))
@@ -492,7 +567,11 @@ class BacktestEngine:
         return BacktestResult(
             trades=trades,
             balance_curve=balance_curve,
-            params=self.params.copy(),
+            params={
+                **self.params.copy(),
+                "_use_ai_mock":     use_ai_mock,
+                "_ai_approve_rate": ai_approve_rate,
+            },
         )
 
 
@@ -568,6 +647,10 @@ def _build_cli_parser() -> argparse.ArgumentParser:
                    help="グリッドサーチを実行してパラメータ比較")
     p.add_argument("--strategy", choices=["breakout", "rsi"], default="breakout",
                    help="バックテスト戦略")
+    p.add_argument("--ai-mock",  action="store_true",
+                   help="AIモックフィルターを有効化")
+    p.add_argument("--ai-approve-rate", type=float, default=0.6,
+                   help="AIモックの承認率（0.0〜1.0、デフォルト 0.6）")
     return p
 
 
@@ -624,8 +707,23 @@ def main():
         params["atr_tp_multiplier"] = args.tp_mult
 
     engine = BacktestEngine(df, params)
-    result = engine.run(signal_func)
-    print(result.summary())
+    result = engine.run(signal_func,
+                        use_ai_mock=args.ai_mock,
+                        ai_approve_rate=args.ai_approve_rate)
+
+    # AI有無の効果を計測（同一シードでAIなしのランを実行して比較）
+    ai_filter_effect: float | None = None
+    if args.ai_mock:
+        base_result = engine.run(signal_func, use_ai_mock=False)
+        base_win    = base_result.win_rate * 100
+        mock_win    = result.win_rate * 100
+        ai_filter_effect = round(mock_win - base_win, 2)
+
+    print(result.summary(
+        use_ai_mock=args.ai_mock,
+        ai_approve_rate=args.ai_approve_rate,
+        ai_filter_effect=ai_filter_effect,
+    ))
 
     if result.n_trades > 0:
         wins   = sum(1 for t in result.closed_trades if t.pnl > 0)

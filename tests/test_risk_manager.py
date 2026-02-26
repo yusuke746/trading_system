@@ -63,7 +63,9 @@ class TestCheckDailyLossLimit(unittest.TestCase):
 
     def _run(self, rows):
         conn = _make_db(rows)
-        with patch("risk_manager.get_connection", return_value=conn):
+        # balance=4000 / max_daily_loss_percent=-5% → limit = 4000×(-5/100) = -200
+        with patch("risk_manager.get_connection", return_value=conn), \
+             patch("risk_manager._get_balance", return_value=4000.0):
             return risk_manager.check_daily_loss_limit()
 
     def test_no_trades_not_blocked(self):
@@ -80,7 +82,7 @@ class TestCheckDailyLossLimit(unittest.TestCase):
         self.assertAlmostEqual(result["daily_pnl_usd"], 100.0)
 
     def test_loss_within_limit_not_blocked(self):
-        """当日損失 -100（上限 -200 以内）→ ブロックしない"""
+        """当日損失 -100（上限 balance$4000×5%=-200 以内）→ ブロックしない"""
         rows = [{"closed_at": _today() + "T10:00:00", "outcome": "sl_hit", "pnl_usd": -100.0}]
         result = self._run(rows)
         self.assertFalse(result["blocked"])
@@ -141,6 +143,29 @@ class TestCheckConsecutiveLosses(unittest.TestCase):
         with patch("risk_manager.get_connection", return_value=conn):
             return risk_manager.check_consecutive_losses()
 
+    def _run_with_old_losses(self, recent_outcomes: list[str],
+                              old_outcomes: list[str],
+                              old_hours_ago: float = 25.0):
+        """
+        recent_outcomes: 現在時刻のトレード（リセット内に収まる）
+        old_outcomes:    cutoffより古いトレード（除外される）
+        old_hours_ago:   古いトレードが何時間前か
+        """
+        from datetime import timedelta
+        old_ts = (datetime.now(timezone.utc)
+                  - timedelta(hours=old_hours_ago)).isoformat()
+        rows = []
+        # 古いトレード（id小 = 古い）から挿入
+        for o in old_outcomes:
+            rows.append({"closed_at": old_ts, "outcome": o, "pnl_usd": -50.0})
+        # 新しいトレード（id大 = 新しい）
+        for o in recent_outcomes:
+            rows.append({"closed_at": _today() + "T10:00:00",
+                         "outcome": o, "pnl_usd": -50.0})
+        conn = _make_db(rows)
+        with patch("risk_manager.get_connection", return_value=conn):
+            return risk_manager.check_consecutive_losses()
+
     def test_no_trades_not_blocked(self):
         """トレードなし（データ不足）→ ブロックしない"""
         result = self._run([])
@@ -183,6 +208,59 @@ class TestCheckConsecutiveLosses(unittest.TestCase):
             result = risk_manager.check_consecutive_losses()
         self.assertFalse(result["blocked"])
         self.assertEqual(result["reason"], "db_error")
+
+    # ── 時間ベースリセットのテスト ────────────────────────
+
+    def test_old_losses_outside_reset_window_not_counted(self):
+        """cutoff より古い 3 連敗は除外されてブロックしない"""
+        # 古い 3 連敗(25h前)は除外、直近トレードなし → リセット済み
+        result = self._run_with_old_losses(
+            recent_outcomes=[],
+            old_outcomes=["sl_hit", "sl_hit", "sl_hit"],
+            old_hours_ago=25.0,
+        )
+        self.assertFalse(result["blocked"])
+        self.assertEqual(result["reason"], "reset_by_time")
+        self.assertEqual(result["consecutive_count"], 0)
+
+    def test_mixed_old_and_recent_does_not_block(self):
+        """25h前に 2 連敗、直近に 1 連敗 → 合算しないため閾値(3)未満"""
+        result = self._run_with_old_losses(
+            recent_outcomes=["sl_hit"],
+            old_outcomes=["sl_hit", "sl_hit"],
+            old_hours_ago=25.0,
+        )
+        self.assertFalse(result["blocked"])
+        # 直近 1 件しかカウントされない
+        self.assertEqual(result["consecutive_count"], 1)
+
+    def test_recent_three_losses_still_blocked(self):
+        """25h前の負け + 直近 3 連敗 → 直近 3 件でブロック"""
+        result = self._run_with_old_losses(
+            recent_outcomes=["sl_hit", "sl_hit", "sl_hit"],
+            old_outcomes=["sl_hit"],
+            old_hours_ago=25.0,
+        )
+        self.assertTrue(result["blocked"])
+
+    def test_reset_hours_zero_disables_time_filter(self):
+        """CONSECUTIVE_LOSS_RESET_HOURS=0 のとき時間フィルターなし（3連敗でブロック）"""
+        rows = [
+            {"closed_at": "2000-01-01T10:00:00+00:00", "outcome": "sl_hit", "pnl_usd": -50.0},
+            {"closed_at": "2000-01-02T10:00:00+00:00", "outcome": "sl_hit", "pnl_usd": -50.0},
+            {"closed_at": "2000-01-03T10:00:00+00:00", "outcome": "sl_hit", "pnl_usd": -50.0},
+        ]
+        conn = _make_db(rows)
+        with patch("risk_manager.get_connection", return_value=conn), \
+             patch("risk_manager.CONSECUTIVE_LOSS_RESET_HOURS", 0):
+            result = risk_manager.check_consecutive_losses()
+        # 時間フィルターを無効化したので古い3連敗がブロックに繋がる
+        self.assertTrue(result["blocked"])
+
+    def test_result_contains_reset_hours_key(self):
+        """返り値に reset_hours キーが存在する"""
+        result = self._run(["tp_hit"])
+        self.assertIn("reset_hours", result)
 
 
 # ──────────────────────────────────────────────────────────
