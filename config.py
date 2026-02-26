@@ -98,3 +98,19 @@ ATR_TP_MULT = SYSTEM_CONFIG["atr_tp_multiplier"]
 MAX_SL_PIPS = SYSTEM_CONFIG["max_sl_pips"]
 MIN_SL_PIPS = SYSTEM_CONFIG["min_sl_pips"]
 PIP_POINTS  = SYSTEM_CONFIG["pip_points"]
+
+# ── セッション別 SL/TP 乗数補正テーブル ─────────────
+# 各セッションの atr_sl_multiplier / atr_tp_multiplier に掛ける係数
+# 1.0 = 変更なし
+SESSION_SLTP_ADJUST = {
+    # Asia: 低ボラ・レンジ → SL/TP を絞って費用対効果を改善
+    "Asia":       {"sl_mult": 0.75, "tp_mult": 0.75},
+    # London: 通常
+    "London":     {"sl_mult": 1.00, "tp_mult": 1.00},
+    # London_NY: 最高ボラ → SL/TP を広げてノイズ耐性と利幅を確保
+    "London_NY":  {"sl_mult": 1.30, "tp_mult": 1.30},
+    # NY: 通常
+    "NY":         {"sl_mult": 1.00, "tp_mult": 1.00},
+    # Off_hours: 低ボラ → Asiaと同様に絞る
+    "Off_hours":  {"sl_mult": 0.75, "tp_mult": 0.75},
+}

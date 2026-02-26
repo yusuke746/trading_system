@@ -12,8 +12,8 @@ try:
 except ImportError:
     MT5_AVAILABLE = False
 
-from config import SYSTEM_CONFIG
-from market_hours import full_market_check
+from config import SYSTEM_CONFIG, SESSION_SLTP_ADJUST
+from market_hours import full_market_check, get_current_session
 from news_filter import check_news_filter
 from logger_module import log_execution, log_event
 import risk_manager
@@ -162,6 +162,17 @@ def build_order_params(trigger: dict, ai_result: dict,
     live_params = param_optimizer.get_live_params()
     dyn_sl_mult = live_params.get("atr_sl_multiplier", ATR_SL_MULT)
     dyn_tp_mult = live_params.get("atr_tp_multiplier", ATR_TP_MULT)
+
+    # セッション別 SL/TP 補正
+    session_info = get_current_session()
+    session_name = session_info.get("session", "London")
+    sess_adj     = SESSION_SLTP_ADJUST.get(session_name, {"sl_mult": 1.0, "tp_mult": 1.0})
+    dyn_sl_mult  = round(dyn_sl_mult * sess_adj["sl_mult"], 4)
+    dyn_tp_mult  = round(dyn_tp_mult * sess_adj["tp_mult"], 4)
+    logger.info(
+        "📅 セッション補正: session=%s sl_mult=%.2f tp_mult=%.2f",
+        session_name, dyn_sl_mult, dyn_tp_mult,
+    )
 
     # _get_atr15m は MT5から取得したATRをdollar価格単位で返す
     # 例: GOLD 15m ATR = 3.5（価格が平均3.5ドル動く）
