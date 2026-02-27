@@ -55,22 +55,20 @@ def log_ai_decision(signal_ids: list, ai_result: dict,
     c = conn.cursor()
     c.execute("""
         INSERT INTO ai_decisions
-        (created_at, signal_ids, decision, confidence, ev_score,
-         order_type, limit_price, limit_expiry, reason, risk_note,
-         wait_scope, wait_condition, context_json, prompt_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (created_at, signal_ids, market_regime, regime_reason,
+         decision, confidence, ev_score,
+         reason, risk_note, wait_condition, context_json, prompt_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         now_utc(),
         json.dumps(signal_ids),
+        ai_result.get("market_regime"),
+        ai_result.get("regime_reason"),
         ai_result.get("decision"),
         ai_result.get("confidence"),
         ai_result.get("ev_score"),
-        ai_result.get("order_type"),
-        ai_result.get("limit_price"),
-        ai_result.get("limit_expiry"),
         ai_result.get("reason"),
         ai_result.get("risk_note"),
-        ai_result.get("wait_scope"),
         ai_result.get("wait_condition"),
         json.dumps(context, ensure_ascii=False) if context else None,
         json.dumps(prompt,   ensure_ascii=False) if prompt   else None,

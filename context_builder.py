@@ -110,6 +110,25 @@ def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
         result["atr14"] = round(float(df["atr14"].iloc[-1]), 3)
         result["close"] = round(float(df["close"].iloc[-1]), 3)
 
+        # ADX14（Wilder平滑化）
+        prev_high  = df["high"].shift(1)
+        prev_low   = df["low"].shift(1)
+        plus_dm    = (df["high"] - prev_high).clip(lower=0)
+        minus_dm   = (prev_low  - df["low"]).clip(lower=0)
+        mask       = plus_dm >= minus_dm
+        plus_dm    = plus_dm.where(mask, 0)
+        minus_dm   = minus_dm.where(~mask, 0)
+        atr_w      = tr.ewm(alpha=1/14, adjust=False).mean()
+        plus_di_s  = plus_dm.ewm(alpha=1/14, adjust=False).mean()
+        minus_di_s = minus_dm.ewm(alpha=1/14, adjust=False).mean()
+        plus_di    = 100 * plus_di_s  / atr_w.replace(0, pd.NA)
+        minus_di   = 100 * minus_di_s / atr_w.replace(0, pd.NA)
+        dx         = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, pd.NA)
+        df["adx14"]        = dx.ewm(alpha=1/14, adjust=False).mean()
+        result["adx14"]    = round(float(df["adx14"].iloc[-1]), 2)
+        result["plus_di"]  = round(float(plus_di.iloc[-1]),     2)
+        result["minus_di"] = round(float(minus_di.iloc[-1]),    2)
+
         if extra:
             result["ema20"] = round(float(df["ema20"].iloc[-1]), 3)
             sma20_val = df["sma20"].iloc[-1] if "sma20" in df.columns else None

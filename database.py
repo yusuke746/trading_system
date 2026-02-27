@@ -194,6 +194,13 @@ def init_db() -> None:
             reason          TEXT
         )""")
 
+        # ai_decisions テーブルに新カラムを追加（既存DBへの後方互換マイグレーション）
+        for col_def in ["market_regime TEXT", "regime_reason TEXT"]:
+            try:
+                c.execute(f"ALTER TABLE ai_decisions ADD COLUMN {col_def}")
+            except sqlite3.OperationalError:
+                pass  # カラムが既に存在する場合はスキップ
+
         conn.commit()
         logger.info("✅ DB初期化完了: %s", DB_PATH)
     finally:

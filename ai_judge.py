@@ -42,7 +42,7 @@ def ask_ai(messages: list[dict]) -> dict:
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0.1,
-            max_tokens=1024,
+            max_tokens=2048,
         )
         content = response.choices[0].message.content
         result  = json.loads(content)
@@ -59,15 +59,13 @@ def ask_ai(messages: list[dict]) -> dict:
         from notifier import notify_ai_api_error
         notify_ai_api_error()
         return {
+            "market_regime":  "Range",
+            "regime_reason":  "AI API エラー",
             "decision":       "reject",
             "confidence":     0.0,
             "ev_score":       0.0,
-            "order_type":     None,
-            "limit_price":    None,
-            "limit_expiry":   None,
             "reason":         f"AI API エラー: {e}",
             "risk_note":      None,
-            "wait_scope":     None,
             "wait_condition": None,
         }
 
