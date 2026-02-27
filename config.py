@@ -118,3 +118,43 @@ SESSION_SLTP_ADJUST = {
     # Off_hours: 低ボラ → Asiaと同様に絞る
     "Off_hours":  {"sl_mult": 0.75, "tp_mult": 0.75},
 }
+
+# ── スコアリングエンジン設定（v3.0）──────────────────────
+# scoring_engine.py が参照する閾値と加減点ルール。
+# バックテストで最適化可能にするため全て外出し。
+SCORING_CONFIG = {
+    # 判定閾値
+    "approve_threshold":    0.30,
+    "wait_threshold":       0.10,
+
+    # レジーム別基礎点
+    "regime_trend_base":      0.15,
+    "regime_breakout_base":   0.20,
+    "regime_range_base":     -0.10,
+
+    # ゾーン・構造要素
+    "zone_touch_aligned":     0.20,
+    "fvg_touch_aligned":      0.15,
+    "liquidity_sweep":        0.25,
+    "sweep_plus_zone":        0.10,
+
+    # モメンタム
+    "trend_aligned":          0.10,
+    "rsi_confirmation":       0.05,
+    "rsi_divergence":        -0.20,
+
+    # シグナル品質
+    "bar_close_confirmed":    0.10,
+    "session_london_ny":      0.05,
+    "session_off_hours":     -0.15,
+
+    # 危険パターン（即reject）
+    "range_mid_chase":       -999,
+    "data_insufficient":     -999,
+    "counter_trend_no_sweep": -0.30,
+
+    # TradingView品質
+    "tv_confidence_high":     0.10,
+    "tv_confidence_low":     -0.10,
+    "tv_win_rate_bonus":      0.05,
+}

@@ -1,6 +1,6 @@
 """
 batch_processor.py - バッチ処理パイプライン
-AI Trading System v2.0
+AI Trading System v3.0
 """
 
 import logging
@@ -213,16 +213,20 @@ class BatchProcessor:
             return
 
         # コンテキスト構築
-        context  = build_context_for_ai(entry_triggers)
-        messages = build_prompt(context)
+        context = build_context_for_ai(entry_triggers)
+        signal_direction = entry_triggers[0].get("direction", "buy")
 
-        # AI判定
-        ai_result = ask_ai(messages)
+        # AI判定（v3.0: context + signal_direction を渡す）
+        ai_result = ask_ai(
+            messages=build_prompt(context),
+            context=context,
+            signal_direction=signal_direction,
+        )
 
         # DB記録
         sig_ids = [t.get("_db_id") for t in entry_triggers if t.get("_db_id")]
         ai_decision_id = log_ai_decision(
-            sig_ids, ai_result, context=context, prompt={"messages": messages}
+            sig_ids, ai_result, context=context, prompt={"messages": build_prompt(context)}
         )
 
         decision = ai_result.get("decision")

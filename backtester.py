@@ -1,13 +1,21 @@
 """
 backtester.py - 過去データでの戦略バックテスト
-AI Trading System v2.0
+AI Trading System v3.0
 
 OHLCV データ（CSV または MT5 から取得）に対してATRベースの戦略をシミュレートし、
 パラメータセットの損益・勝率・最大ドローダウンなどを計算する。
 
+v3.0 追加:
+  - スプレッド・手数料・スリッページの考慮
+  - scoring_engine との統合 (--scoring-filter)
+  - TradingViewアラート履歴インポート (tv_alert_signal)
+  - ウォークフォワード分析
+
 CLIからの使用方法:
   python backtester.py --csv data.csv
   python backtester.py --csv data.csv --sl-mult 2.0 --tp-mult 3.0
+  python backtester.py --csv data.csv --spread 0.50 --slippage 0.10
+  python backtester.py --csv data.csv --scoring-filter
   python backtester.py --mt5 --bars 2000
 
 ライブラリとしての使用方法:
@@ -19,6 +27,7 @@ CLIからの使用方法:
 """
 
 import argparse
+import json
 import logging
 import random
 from dataclasses import dataclass, field
@@ -46,6 +55,10 @@ _DEFAULT_PARAMS = {
     "initial_balance":    10_000.0,
     "atr_period":         14,
     "signal_lookback":    20,   # シグナル判定に使う直近バー数
+    # v3.0 追加: スプレッド・手数料・スリッページ
+    "spread_dollar":      0.50,   # GOLD スプレッド ($0.50 ≒ 5pips)
+    "slippage_dollar":    0.10,   # 約定ずれ ($0.10)
+    "commission_per_lot": 0.0,    # 手数料 (ロット当たり)
 }
 
 
@@ -376,13 +389,17 @@ class BacktestEngine:
     def run(self,
             signal_func: Callable | None = None,
             use_ai_mock: bool = False,
-            ai_approve_rate: float = 0.6) -> BacktestResult:
+            ai_approve_rate: float = 0.6,
+            use_scoring_filter: bool = False,
+            scoring_config_overrides: dict | None = None) -> BacktestResult:
         """
         バックテストを実行する。
 
         Args:
             signal_func: シグナル関数 (df, i, params) -> "buy"|"sell"|None
                          省略時は atr_breakout_signal を使用
+            use_scoring_filter: True の場合 scoring_engine をフィルターとして使用（v3.0）
+            scoring_config_overrides: SCORING_CONFIG の上書き設定（v3.0）
 
         Returns:
             BacktestResult
@@ -395,6 +412,11 @@ class BacktestEngine:
         if use_ai_mock:
             rng     = random.Random(self.random_seed)
             ai_mock = AiJudgeMock(approve_rate=ai_approve_rate, rng=rng)
+
+        # v3.0: スコアリングフィルター初期化
+        scoring_filter: ScoringFilterMock | None = None
+        if use_scoring_filter:
+            scoring_filter = ScoringFilterMock(scoring_config_overrides)
 
         p         = self.params
         balance   = p["initial_balance"]
@@ -410,6 +432,11 @@ class BacktestEngine:
         partial_mult  = p["partial_tp_atr_mult"]
         trail_mult    = p["trailing_step_atr_mult"]
         partial_ratio = p["partial_close_ratio"]
+
+        # v3.0: スプレッド・スリッページ
+        spread    = p.get("spread_dollar", 0.0)
+        slippage  = p.get("slippage_dollar", 0.0)
+        cost_per_trade = spread + slippage  # 片道コスト
 
         trades:       list[Trade] = []
         balance_curve: list[float] = [balance]
@@ -525,6 +552,14 @@ class BacktestEngine:
                 if ai_result["decision"] == "reject":
                     continue
 
+            # v3.0: スコアリングフィルター
+            if scoring_filter is not None:
+                score_result = scoring_filter.filter(
+                    self.df, i, direction, atr, self.params
+                )
+                if score_result["decision"] == "reject":
+                    continue
+
             # SL/TP計算
             sl_dollar = round(atr * sl_mult, 3)
             sl_dollar = max(min_sl, min(max_sl, sl_dollar))
@@ -534,17 +569,20 @@ class BacktestEngine:
             lot_size    = round(risk_amount / (sl_dollar * 100.0), 2)
             lot_size    = max(0.01, lot_size)
 
+            # v3.0: スプレッド・スリッページを考慮したエントリー価格
             if direction == "buy":
-                sl_price = round(close - sl_dollar, 3)
-                tp_price = round(close + tp_dollar, 3)
+                entry_px = close + cost_per_trade  # buy: askで約定 = 高め
+                sl_price = round(entry_px - sl_dollar, 3)
+                tp_price = round(entry_px + tp_dollar, 3)
             else:
-                sl_price = round(close + sl_dollar, 3)
-                tp_price = round(close - tp_dollar, 3)
+                entry_px = close - cost_per_trade  # sell: bidで約定 = 低め
+                sl_price = round(entry_px + sl_dollar, 3)
+                tp_price = round(entry_px - tp_dollar, 3)
 
             trade = Trade(
                 direction   = direction,
                 entry_bar   = i,
-                entry_price = close,
+                entry_price = entry_px,
                 sl_price    = sl_price,
                 tp_price    = tp_price,
                 lot_size    = lot_size,
@@ -624,6 +662,203 @@ def grid_search(
 
 
 # ──────────────────────────────────────────────────────────
+# v3.0: ScoringFilterMock（scoring_engine 統合テスト用）
+# ──────────────────────────────────────────────────────────
+
+class ScoringFilterMock:
+    """
+    バックテスト用のスコアリングフィルターモック。
+    scoring_engine.calculate_score() を模倣し、
+    OHLCVバーからの疑似構造化データを生成してスコアリングする。
+    """
+
+    def __init__(self, scoring_config_overrides: dict | None = None):
+        from config import SCORING_CONFIG
+        self._config = {**SCORING_CONFIG, **(scoring_config_overrides or {})}
+
+    def filter(self, df: pd.DataFrame, i: int, direction: str,
+               atr: float, params: dict) -> dict:
+        """
+        OHLCVバーから疑似構造化データを生成し、スコアリングする。
+
+        Returns:
+            {"decision": "approve"|"reject"|"wait", "score": float, ...}
+        """
+        from scoring_engine import calculate_score
+
+        # OHLCVバーから疑似構造化データ生成
+        structured = self._build_mock_structured(df, i, direction, atr, params)
+        return calculate_score(structured, direction)
+
+    def _build_mock_structured(self, df: pd.DataFrame, i: int,
+                                direction: str, atr: float,
+                                params: dict) -> dict:
+        """OHLCVバーから疑似構造化データを生成する"""
+        close = float(df["close"].iloc[i])
+
+        # RSI計算
+        rsi_value = None
+        rsi_zone = "neutral"
+        if i >= 20:
+            delta = df["close"].diff()
+            gain = delta.clip(lower=0)
+            loss_s = -delta.clip(upper=0)
+            avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+            avg_loss = loss_s.ewm(alpha=1/14, adjust=False).mean()
+            rs = avg_gain.iloc[i] / (avg_loss.iloc[i] + 1e-10)
+            rsi_value = round(100 - 100 / (1 + rs), 2)
+            if rsi_value < 30:
+                rsi_zone = "oversold"
+            elif rsi_value > 70:
+                rsi_zone = "overbought"
+
+        # ADX計算（簡易）
+        adx_value = None
+        adx_rising = None
+        if i >= 30:
+            # 簡易ADX: ATR変動率で近似
+            atr_series = df["atr"].iloc[max(0, i-14):i+1].dropna()
+            if len(atr_series) >= 5:
+                adx_value = round(float(atr_series.std() / (atr_series.mean() + 1e-10) * 100), 2)
+                adx_rising = float(atr_series.iloc[-1]) > float(atr_series.iloc[-3]) if len(atr_series) >= 3 else None
+
+        # SMA20
+        sma20 = None
+        sma20_distance_pct = None
+        above_sma20 = None
+        if i >= 20:
+            sma20 = float(df["close"].iloc[i-20:i].mean())
+            if sma20 > 0:
+                sma20_distance_pct = round((close - sma20) / sma20 * 100, 2)
+                above_sma20 = close > sma20
+
+        # レジーム分類
+        classification = "range"
+        atr_expanding = False
+        if adx_value is not None:
+            if adx_value > 25 and atr > params.get("atr_volatility_min", 3.0) * 2:
+                classification = "breakout"
+                atr_expanding = True
+            elif adx_value > 20:
+                classification = "trend"
+
+        return {
+            "regime": {
+                "classification": classification,
+                "adx_value": adx_value,
+                "adx_rising": adx_rising,
+                "atr_expanding": atr_expanding,
+                "squeeze_detected": atr < params.get("atr_volatility_min", 3.0) * 1.5 if atr else False,
+            },
+            "price_structure": {
+                "above_sma20": above_sma20,
+                "sma20_distance_pct": sma20_distance_pct,
+                "perfect_order": None,
+                "higher_highs": None,
+                "lower_lows": None,
+            },
+            "zone_interaction": {
+                "zone_touch": False,
+                "zone_direction": None,
+                "fvg_touch": False,
+                "fvg_direction": None,
+                "liquidity_sweep": False,
+                "sweep_direction": None,
+            },
+            "momentum": {
+                "rsi_value": rsi_value,
+                "rsi_zone": rsi_zone,
+                "trend_aligned": True,  # バックテストではQ-trendなし
+            },
+            "signal_quality": {
+                "source": "backtest",
+                "bar_close_confirmed": True,
+                "session": "London",
+                "tv_confidence": None,
+                "tv_win_rate": None,
+            },
+            "data_completeness": {
+                "mt5_connected": False,
+                "fields_missing": [],
+            },
+        }
+
+
+# ──────────────────────────────────────────────────────────
+# v3.0: ウォークフォワード分析
+# ──────────────────────────────────────────────────────────
+
+def walk_forward_analysis(
+    df: pd.DataFrame,
+    n_splits: int = 5,
+    train_ratio: float = 0.7,
+    signal_func: Callable | None = None,
+) -> list[dict]:
+    """
+    ウォークフォワード分析。データをn_splits個の区間に分割し、
+    各区間のtrain部分で最適パラメータを選定、test部分で検証する。
+
+    Args:
+        df:          OHLCV DataFrame
+        n_splits:    分割数
+        train_ratio: トレーニング比率
+        signal_func: シグナル関数
+
+    Returns:
+        [{"split": 1, "train_pnl": ..., "test_pnl": ..., ...}, ...]
+    """
+    total_bars = len(df)
+    split_size = total_bars // n_splits
+    results = []
+
+    for split_i in range(n_splits):
+        start = split_i * split_size
+        end = min(start + split_size, total_bars)
+        split_df = df.iloc[start:end].reset_index(drop=True)
+
+        if len(split_df) < 60:
+            continue
+
+        train_end = int(len(split_df) * train_ratio)
+        train_df = split_df.iloc[:train_end].reset_index(drop=True)
+        test_df = split_df.iloc[train_end:].reset_index(drop=True)
+
+        if len(train_df) < 40 or len(test_df) < 20:
+            continue
+
+        # トレーニング: グリッドサーチで最適パラメータ選定
+        train_results = grid_search(train_df, signal_func=signal_func)
+        if not train_results:
+            continue
+
+        best = train_results[0]
+        best_params = {
+            "atr_sl_multiplier": best["sl_mult"],
+            "atr_tp_multiplier": best["tp_mult"],
+        }
+
+        # テスト: 最適パラメータで検証
+        test_engine = BacktestEngine(test_df, best_params)
+        test_result = test_engine.run(signal_func)
+
+        results.append({
+            "split": split_i + 1,
+            "train_bars": len(train_df),
+            "test_bars": len(test_df),
+            "best_sl_mult": best["sl_mult"],
+            "best_tp_mult": best["tp_mult"],
+            "train_pnl": best["total_pnl"],
+            "train_win_rate": best["win_rate"],
+            "test_pnl": round(test_result.total_pnl, 2),
+            "test_win_rate": round(test_result.win_rate, 3),
+            "test_n_trades": test_result.n_trades,
+            "test_profit_factor": test_result.profit_factor,
+        })
+
+    return results
+
+
+# ──────────────────────────────────────────────────────────
 # CLI エントリーポイント
 # ──────────────────────────────────────────────────────────
 
@@ -651,6 +886,17 @@ def _build_cli_parser() -> argparse.ArgumentParser:
                    help="AIモックフィルターを有効化")
     p.add_argument("--ai-approve-rate", type=float, default=0.6,
                    help="AIモックの承認率（0.0〜1.0、デフォルト 0.6）")
+    # v3.0 追加
+    p.add_argument("--spread",  type=float, default=0.50,
+                   help="スプレッド（ドル、デフォルト 0.50）")
+    p.add_argument("--slippage", type=float, default=0.10,
+                   help="スリッページ（ドル、デフォルト 0.10）")
+    p.add_argument("--scoring-filter", action="store_true",
+                   help="scoring_engine をフィルターとして使用（v3.0）")
+    p.add_argument("--walk-forward", action="store_true",
+                   help="ウォークフォワード分析を実行")
+    p.add_argument("--wf-splits", type=int, default=5,
+                   help="ウォークフォワードの分割数（デフォルト 5）")
     return p
 
 
@@ -699,17 +945,38 @@ def main():
               f"総損益 ${best['total_pnl']:+.2f}")
         return
 
+    # v3.0: ウォークフォワード分析
+    if args.walk_forward:
+        print(f"\n📈 ウォークフォワード分析 ({args.wf_splits}分割)...\n")
+        wf_results = walk_forward_analysis(df, n_splits=args.wf_splits,
+                                            signal_func=signal_func)
+        if not wf_results:
+            print("⚠️ ウォークフォワード結果なし")
+            return
+        for r in wf_results:
+            print(f"  Split {r['split']}: "
+                  f"Train ${r['train_pnl']:+.2f} WR={r['train_win_rate']:.1%} | "
+                  f"Test ${r['test_pnl']:+.2f} WR={r['test_win_rate']:.1%} "
+                  f"(SL×{r['best_sl_mult']} TP×{r['best_tp_mult']})")
+        total_test_pnl = sum(r["test_pnl"] for r in wf_results)
+        print(f"\n  合計テスト損益: ${total_test_pnl:+.2f}")
+        return
+
     # 単一パラメータセットのバックテスト
     params = {}
     if args.sl_mult is not None:
         params["atr_sl_multiplier"] = args.sl_mult
     if args.tp_mult is not None:
         params["atr_tp_multiplier"] = args.tp_mult
+    # v3.0: スプレッド・スリッページ
+    params["spread_dollar"] = args.spread
+    params["slippage_dollar"] = args.slippage
 
     engine = BacktestEngine(df, params)
     result = engine.run(signal_func,
                         use_ai_mock=args.ai_mock,
-                        ai_approve_rate=args.ai_approve_rate)
+                        ai_approve_rate=args.ai_approve_rate,
+                        use_scoring_filter=args.scoring_filter)
 
     # AI有無の効果を計測（同一シードでAIなしのランを実行して比較）
     ai_filter_effect: float | None = None

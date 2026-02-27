@@ -1,8 +1,9 @@
 """
-loss_analyzer.py - 決済監視・負け分析（振り返りAI）
-AI Trading System v2.0
+loss_analyzer.py - 決済監視・負け分析・フィードバックループ
+AI Trading System v3.0
 
 10秒ポーリングでポジション決済を検知し、SL被弾時に振り返りAIを実行する。
+v3.0: scoring_history への結果記録（outcome/pnl）フィードバック機能を追加。
 """
 
 import json
@@ -179,6 +180,9 @@ class LossAnalyzer:
         if outcome == "sl_hit" and result_id:
             self._run_loss_ai(result_id, info, ticket)
 
+        # v3.0: scoring_history へのフィードバック
+        self._update_scoring_history(ticket, outcome, total_pnl)
+
     def _run_loss_ai(self, result_id: int, info: dict, ticket: int):
         """振り返りAI（GPT-4o-mini）"""
         # 元のAI判定コンテキストを取得
@@ -239,3 +243,65 @@ class LossAnalyzer:
         except Exception as e:
             logger.error("振り返りAI失敗: ticket=%d %s", ticket, e)
             log_event("loss_analysis_error", str(e), level="WARNING")
+
+    def _update_scoring_history(self, ticket: int, outcome: str, pnl_usd: float):
+        """
+        v3.0: scoring_history テーブルに結果をフィードバックする。
+        ai_decisions から score_breakdown を取得し、scoring_history の
+        対応レコードに outcome と pnl_usd を記録する。
+        """
+        try:
+            conn = get_connection()
+
+            # executions → ai_decisions を結合して score_breakdown を取得
+            row = conn.execute("""
+                SELECT ad.id as ai_id, ad.score_breakdown, ad.decision,
+                       ad.ev_score, ad.market_regime, e.direction
+                FROM executions e
+                JOIN ai_decisions ad ON ad.id = e.ai_decision_id
+                WHERE e.mt5_ticket = ?
+                LIMIT 1
+            """, (ticket,)).fetchone()
+
+            if not row:
+                return
+
+            # scoring_history に既にレコードがある場合は更新
+            existing = conn.execute("""
+                SELECT id FROM scoring_history
+                WHERE created_at >= datetime('now', '-1 day')
+                  AND signal_direction = ?
+                  AND decision = ?
+                ORDER BY id DESC LIMIT 1
+            """, (row["direction"], row["decision"])).fetchone()
+
+            if existing:
+                conn.execute("""
+                    UPDATE scoring_history
+                    SET outcome = ?, pnl_usd = ?
+                    WHERE id = ?
+                """, (outcome, pnl_usd, existing["id"]))
+            else:
+                # 新規レコードとして挿入
+                conn.execute("""
+                    INSERT INTO scoring_history
+                    (signal_direction, regime, total_score, decision,
+                     breakdown_json, outcome, pnl_usd)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row["direction"],
+                    row["market_regime"],
+                    row["ev_score"],
+                    row["decision"],
+                    row["score_breakdown"],
+                    outcome,
+                    pnl_usd,
+                ))
+            conn.commit()
+
+            logger.debug(
+                "📝 scoring_history フィードバック: ticket=%d outcome=%s pnl=%.2f",
+                ticket, outcome, pnl_usd
+            )
+        except Exception as e:
+            logger.error("scoring_history フィードバック失敗: %s", e)
