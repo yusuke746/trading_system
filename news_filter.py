@@ -58,7 +58,8 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
     look_ahead = now + timedelta(hours=2)
 
     try:
-        events = mt5.calendar_event_get(now, look_ahead)
+        # calendar_value_get で時間範囲内のイベント値を取得（正しい MT5 API）
+        values = mt5.calendar_value_get(now, look_ahead)
     except Exception as e:
         msg = f"MT5カレンダーAPI取得失敗: {e}"
         logger.warning(msg)
@@ -71,7 +72,7 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
         return {"blocked": False, "reason": msg,
                 "resumes_at": None, "fail_safe_triggered": False}
 
-    if events is None:
+    if values is None:
         if NEWS_FILTER_FAIL_SAFE:
             reason = "カレンダー取得失敗（安全のためブロック）"
             log_event("news_filter_fail_safe", reason, level="WARNING")
@@ -80,19 +81,9 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
         return {"blocked": False, "reason": "カレンダーイベントなし",
                 "resumes_at": None, "fail_safe_triggered": False}
 
-    for event in events:
-        # 通貨フィルター
-        currency = getattr(event, "currency", None)
-        if currency not in TARGET_CURRENCIES:
-            continue
-
-        # 重要度フィルター（2以上）
-        importance = getattr(event, "importance", 0)
-        if importance < MIN_IMPORTANCE:
-            continue
-
+    for value in values:
         # 発表時刻
-        event_time_ts = getattr(event, "time", None)
+        event_time_ts = getattr(value, "time", None)
         if event_time_ts is None:
             continue
         try:
@@ -102,28 +93,46 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
 
         # ± 30分チェック（diff_min: 正=発表前、負=発表後）
         diff_min = (event_dt - now).total_seconds() / 60.0
+        if not (-BLOCK_AFTER_MIN <= diff_min <= BLOCK_BEFORE_MIN):
+            continue
 
-        if -BLOCK_AFTER_MIN <= diff_min <= BLOCK_BEFORE_MIN:
-            # 発表後の場合は resumes_at = event_dt + 30min
-            if diff_min < 0:
-                resumes_at = (event_dt + timedelta(minutes=BLOCK_AFTER_MIN)).isoformat()
-            else:
-                resumes_at = (event_dt + timedelta(minutes=BLOCK_AFTER_MIN)).isoformat()
+        # イベント定義を取得して通貨・重要度を確認
+        event_id = getattr(value, "event_id", None)
+        if event_id is None:
+            continue
+        try:
+            event_def = mt5.calendar_event_by_id(event_id)
+        except Exception:
+            continue
+        if event_def is None:
+            continue
 
-            event_name = getattr(event, "name", "不明")
-            side = "発表前" if diff_min >= 0 else "発表後"
-            abs_min = int(abs(diff_min))
-            reason = f"指標ブロック: {event_name} ({side}{abs_min}分)"
+        # 通貨フィルター
+        currency = getattr(event_def, "currency", None)
+        if currency not in TARGET_CURRENCIES:
+            continue
 
-            log_event("news_filter_block", detail=reason)
-            logger.info("🚫 %s → エントリー拒否 / 再開予定: %s", reason, resumes_at)
+        # 重要度フィルター（2以上）
+        importance = getattr(event_def, "importance", 0)
+        if importance < MIN_IMPORTANCE:
+            continue
 
-            return {
-                "blocked":             True,
-                "reason":              reason,
-                "resumes_at":          resumes_at,
-                "fail_safe_triggered": False,
-            }
+        resumes_at = (event_dt + timedelta(minutes=BLOCK_AFTER_MIN)).isoformat()
+
+        event_name = getattr(event_def, "name", "不明")
+        side = "発表前" if diff_min >= 0 else "発表後"
+        abs_min = int(abs(diff_min))
+        reason = f"指標ブロック: {event_name} ({side}{abs_min}分)"
+
+        log_event("news_filter_block", detail=reason)
+        logger.info("🚫 %s → エントリー拒否 / 再開予定: %s", reason, resumes_at)
+
+        return {
+            "blocked":             True,
+            "reason":              reason,
+            "resumes_at":          resumes_at,
+            "fail_safe_triggered": False,
+        }
 
     return {"blocked": False, "reason": "ニュースフィルター通過",
             "resumes_at": None, "fail_safe_triggered": False}
