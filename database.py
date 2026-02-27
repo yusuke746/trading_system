@@ -195,11 +195,30 @@ def init_db() -> None:
         )""")
 
         # ai_decisions テーブルに新カラムを追加（既存DBへの後方互換マイグレーション）
-        for col_def in ["market_regime TEXT", "regime_reason TEXT"]:
+        for col_def in [
+            "market_regime TEXT",
+            "regime_reason TEXT",
+            "score_breakdown TEXT",      # v3.0: スコア内訳JSON
+            "structured_data TEXT",      # v3.0: LLM構造化出力JSON
+        ]:
             try:
                 c.execute(f"ALTER TABLE ai_decisions ADD COLUMN {col_def}")
             except sqlite3.OperationalError:
                 pass  # カラムが既に存在する場合はスキップ
+
+        # ── scoring_history（v3.0 新規テーブル）─────────────
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS scoring_history (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at       TEXT DEFAULT (datetime('now')),
+            signal_direction TEXT,
+            regime           TEXT,
+            total_score      REAL,
+            decision         TEXT,
+            breakdown_json   TEXT,
+            outcome          TEXT DEFAULT NULL,
+            pnl_usd          REAL DEFAULT NULL
+        )""")
 
         conn.commit()
         logger.info("✅ DB初期化完了: %s", DB_PATH)
