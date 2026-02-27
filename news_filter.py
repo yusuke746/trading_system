@@ -27,6 +27,20 @@ MIN_IMPORTANCE       = SYSTEM_CONFIG["news_min_importance"]        # 2
 NEWS_FILTER_ENABLED  = SYSTEM_CONFIG["news_filter_enabled"]
 NEWS_FILTER_FAIL_SAFE = SYSTEM_CONFIG.get("news_filter_fail_safe", True)
 
+# カレンダーAPI対応チェック（MT5ビルドによっては未実装）
+MT5_CALENDAR_AVAILABLE = (
+    MT5_AVAILABLE
+    and hasattr(mt5, "calendar_value_get")
+    and hasattr(mt5, "calendar_event_by_id")
+)
+if MT5_AVAILABLE and not MT5_CALENDAR_AVAILABLE:
+    logger.warning(
+        "MetaTrader5 (v%s) にカレンダーAPIが含まれていません。"
+        "ニュースフィルターは無効化されます。"
+        "MT5端末 5.0.37 以降ビルドへのアップデートを検討してください。",
+        getattr(mt5, "__version__", "unknown"),
+    )
+
 
 def check_news_filter(symbol: str = "XAUUSD") -> dict:
     """
@@ -52,6 +66,12 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
             return {"blocked": True, "reason": reason,
                     "resumes_at": None, "fail_safe_triggered": True}
         return {"blocked": False, "reason": "MT5未インストール",
+                "resumes_at": None, "fail_safe_triggered": False}
+
+    # カレンダーAPI非対応ビルドはフィルター機能を持たないため通過扱い
+    if not MT5_CALENDAR_AVAILABLE:
+        return {"blocked": False,
+                "reason": "MT5カレンダーAPI非対応ビルド（フィルター無効）",
                 "resumes_at": None, "fail_safe_triggered": False}
 
     now = datetime.now(timezone.utc)
