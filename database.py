@@ -120,7 +120,11 @@ def init_db() -> None:
             wait_scope       TEXT,
             wait_condition   TEXT,
             context_json     TEXT,
-            prompt_json      TEXT
+            prompt_json      TEXT,
+            setup_type       TEXT DEFAULT 'standard',
+            q_trend_aligned  INTEGER DEFAULT 0,
+            session          TEXT DEFAULT NULL,
+            pattern_similarity REAL DEFAULT NULL
         )""")
 
         # ── executions ──────────────────────────────────────
@@ -205,7 +209,19 @@ def init_db() -> None:
                 c.execute(f"ALTER TABLE ai_decisions ADD COLUMN {col_def}")
             except sqlite3.OperationalError:
                 pass  # カラムが既に存在する場合はスキップ
-
+        # 新規追加カラム（作楥26-02-28）
+        _new_columns = [
+            "ALTER TABLE ai_decisions ADD COLUMN setup_type TEXT DEFAULT 'standard'",
+            "ALTER TABLE ai_decisions ADD COLUMN q_trend_aligned INTEGER DEFAULT 0",
+            "ALTER TABLE ai_decisions ADD COLUMN session TEXT DEFAULT NULL",
+            "ALTER TABLE ai_decisions ADD COLUMN pattern_similarity REAL DEFAULT NULL",
+        ]
+        for sql in _new_columns:
+            try:
+                conn.execute(sql)
+            except Exception:
+                pass  # カラムが既に存在する場合はスキップ
+        conn.commit()
         # ── scoring_history（v3.0 新規テーブル）─────────────
         c.execute("""
         CREATE TABLE IF NOT EXISTS scoring_history (

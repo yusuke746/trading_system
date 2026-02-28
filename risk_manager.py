@@ -389,3 +389,23 @@ def run_all_risk_checks(symbol: str, entry_price: float = 0.0) -> dict:
             "gap":         gap,
         },
     }
+
+
+# ────────────────────────────────────────────────────────────
+# 4. 高インパクト経済指標時間帯チェック
+# ────────────────────────────────────────────────────────────
+
+def is_high_impact_period() -> bool:
+    """
+    config.HIGH_IMPACT_UTC_TIMESに基づき、現在が高インパクト時間帯かを返す。
+    Trueの場合、新規エントリーをスキップすること。
+    """
+    from datetime import datetime, timezone
+    from config import HIGH_IMPACT_UTC_TIMES
+    now = datetime.now(timezone.utc)
+    for period in HIGH_IMPACT_UTC_TIMES:
+        if period["weekday"] is not None and now.weekday() != period["weekday"]:
+            continue
+        if period["hour_start"] <= now.hour < period["hour_end"]:
+            return True
+    return False

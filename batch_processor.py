@@ -7,11 +7,12 @@ import logging
 from datetime import datetime, timezone, timedelta
 from database import get_connection
 from config import SYSTEM_CONFIG
-from logger_module import log_signal, log_ai_decision, log_wait
+from logger_module import log_signal, log_ai_decision, log_wait, log_event
 from context_builder import build_context_for_ai
 from prompt_builder import build_prompt
 from ai_judge import ask_ai, should_execute
 from executor import execute_order
+from risk_manager import is_high_impact_period
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,9 @@ class BatchProcessor:
         self._position_manager = position_manager
         # 逆張り自動昇格：直近昇格時刻（方向別クールダウン管理）
         self._reversal_last_triggered: dict[str, datetime] = {}
+        # zone_retrace_touch クールダウン管理（30分）
+        self._last_zone_touch: dict[str, datetime] = {}            # key: "buy"/"sell", value: datetime
+        self._zone_touch_cooldown_sec: int = 30 * 60               # 30分
 
     def process(self, batch: list[dict]) -> None:
         """バッチを種別分類してパイプラインを実行する"""
@@ -35,6 +39,13 @@ class BatchProcessor:
 
         # structureシグナルをDBに記録
         for s in structures:
+            # zone_retrace_touch のクールダウンチェック
+            if s.get("event") == "zone_retrace_touch":
+                direction = s.get("direction", "")
+                if self._is_zone_touch_cooldown(direction):
+                    logger.info("⏳ zone_touch cooldown中のためスキップ: direction=%s", direction)
+                    continue  # DBに記録せずスキップ
+                self._last_zone_touch[direction] = datetime.now(timezone.utc)
             sig_id = log_signal(s)
             s["_db_id"] = sig_id
             logger.debug("🔵 structure記録: event=%s", s.get("event"))
@@ -80,6 +91,14 @@ class BatchProcessor:
 
         # 単一方向の場合は通常処理
         self._process_by_direction(entry_triggers)
+
+    def _is_zone_touch_cooldown(self, direction: str) -> bool:
+        """同方向のzone_retrace_touchが30分以内に処理済みならTrueを返す"""
+        last = self._last_zone_touch.get(direction)
+        if last is None:
+            return False
+        elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+        return elapsed < self._zone_touch_cooldown_sec
 
     def _detect_reversal_setup(self, structures: list[dict]) -> dict | None:
         """
@@ -241,12 +260,17 @@ class BatchProcessor:
                 logger.info("📦 複数トリガーによるapprove: sources=%s → 代表トリガー=%s",
                             [t.get("source") for t in entry_triggers],
                             entry_triggers[0].get("source"))
-            execute_order(
-                trigger          = entry_triggers[0],
-                ai_result        = ai_result,
-                ai_decision_id   = ai_decision_id,
-                position_manager = self._position_manager,
-            )
+            # 高インパクト時間帯チェック
+            if is_high_impact_period():
+                logger.info("🚫 高インパクト時間帯のため執行スキップ")
+                log_event("execution_blocked", "high_impact_period")
+            else:
+                execute_order(
+                    trigger          = entry_triggers[0],
+                    ai_result        = ai_result,
+                    ai_decision_id   = ai_decision_id,
+                    position_manager = self._position_manager,
+                )
 
         elif decision == "wait":
             wait_id = log_wait(
