@@ -17,7 +17,8 @@ APPROVE_THRESHOLD = SCORING_CONFIG["approve_threshold"]
 WAIT_THRESHOLD = SCORING_CONFIG["wait_threshold"]
 
 
-def calculate_score(structured_data: dict, signal_direction: str) -> dict:
+def calculate_score(structured_data: dict, signal_direction: str,
+                    q_trend_available: bool = True) -> dict:
     """
     構造化データからスコアを計算し、判定結果を返す。
 
@@ -35,7 +36,8 @@ def calculate_score(structured_data: dict, signal_direction: str) -> dict:
         }
     """
     # 即rejectチェック
-    reject_reasons = _check_instant_reject(structured_data, signal_direction)
+    reject_reasons = _check_instant_reject(structured_data, signal_direction,
+                                           q_trend_available)
     if reject_reasons:
         return {
             "decision": "reject",
@@ -99,7 +101,9 @@ def calculate_score(structured_data: dict, signal_direction: str) -> dict:
     }
 
 
-def _check_instant_reject(structured_data: dict, signal_direction: str) -> list[str]:
+def _check_instant_reject(structured_data: dict,
+                           signal_direction: str,
+                           q_trend_available: bool = True) -> list[str]:
     """即rejectパターンのチェック。該当する理由のリストを返す。"""
     reasons: list[str] = []
 
@@ -124,6 +128,16 @@ def _check_instant_reject(structured_data: dict, signal_direction: str) -> list[
             fvg_touch = zone_interaction.get("fvg_touch", False)
             if not zone_touch and not fvg_touch:
                 reasons.append("レンジ中央での順張り（SMA20乖離±0.3%以内、ゾーン/FVGタッチなし）")
+
+    # Gate 2: Q-trend不一致 かつ bar_close未確認 → 即reject
+    # q_trend_availableがFalseの場合（Q-trendデータ未受信）はスキップする
+    if q_trend_available:
+        momentum = structured_data.get("momentum", {})
+        signal_quality = structured_data.get("signal_quality", {})
+        trend_aligned = momentum.get("trend_aligned", True)
+        bar_close_confirmed = signal_quality.get("bar_close_confirmed", True)
+        if not trend_aligned and not bar_close_confirmed:
+            return ["Gate2: Q-trend不一致かつbar_close未確認"]
 
     return reasons
 
