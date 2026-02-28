@@ -137,7 +137,7 @@ def _check_instant_reject(structured_data: dict,
         trend_aligned = momentum.get("trend_aligned", True)
         bar_close_confirmed = signal_quality.get("bar_close_confirmed", True)
         if not trend_aligned and not bar_close_confirmed:
-            return ["Gate2: Q-trend不一致かつbar_close未確認"]
+            reasons.append("Gate2: Q-trend不一致かつbar_close未確認")
 
     return reasons
 
