@@ -153,6 +153,20 @@ def _get_current_market_price(symbol: str, direction: str) -> float | None:
         return None
 
 
+def _get_setup_type(ai_result: dict) -> str:
+    """
+    score_breakdownからセットアップ種別を判定する。
+    Returns: 'sweep_reversal' | 'trend_continuation' | 'standard'
+    """
+    breakdown = ai_result.get("score_breakdown", {})
+    if "liquidity_sweep" in breakdown:
+        return "sweep_reversal"
+    regime = ai_result.get("market_regime", "range")
+    if regime in ("trend", "breakout") and "zone_touch_aligned_with_trend" in breakdown:
+        return "trend_continuation"
+    return "standard"
+
+
 def build_order_params(trigger: dict, ai_result: dict,
                         ai_decision_id: int = None) -> dict:
     """
@@ -213,9 +227,24 @@ def build_order_params(trigger: dict, ai_result: dict,
         )
         return None
 
+    # セットアップ種別に応じた動的SL/TP乗数
+    setup = _get_setup_type(ai_result)
+    if setup == "sweep_reversal":
+        # TODO: sweep_priceフィールド追加後にSLをATR×0.8から変更すること（仮実装）
+        sl_mult = max(dyn_sl_mult * 0.8, SYSTEM_CONFIG.get("min_sl_pips", 5) / atr_dollar)
+        tp_mult = dyn_tp_mult * 1.3
+    elif setup == "trend_continuation":
+        sl_mult = dyn_sl_mult
+        tp_mult = dyn_tp_mult * 1.2
+    else:
+        sl_mult = dyn_sl_mult
+        tp_mult = dyn_tp_mult
+    # setup_typeをai_resultに記録してDBログに残す
+    ai_result["setup_type"] = setup
+
     # SL距離計算（dollar価格単位）
     # MIN_SL_PIPS / MAX_SL_PIPS もdollar価格単位として流用（5.0〜50.0ドル上限）
-    sl_dollar = round(atr_dollar * dyn_sl_mult, 3)
+    sl_dollar = round(atr_dollar * sl_mult, 3)
     sl_dollar = max(MIN_SL_PIPS, min(MAX_SL_PIPS, sl_dollar))
 
     # ロットサイズ計算
@@ -268,10 +297,10 @@ def build_order_params(trigger: dict, ai_result: dict,
     # 価格計算（ATRはdollar価格単位なのでそのまま引き算）
     if direction == "buy":
         sl_price = round(price - sl_dollar, 3)
-        tp_price = round(price + atr_dollar * dyn_tp_mult, 3)
+        tp_price = round(price + atr_dollar * tp_mult, 3)
     else:
         sl_price = round(price + sl_dollar, 3)
-        tp_price = round(price - atr_dollar * dyn_tp_mult, 3)
+        tp_price = round(price - atr_dollar * tp_mult, 3)
 
     limit_price   = ai_result.get("limit_price")
     limit_expiry  = ai_result.get("limit_expiry")
@@ -286,8 +315,8 @@ def build_order_params(trigger: dict, ai_result: dict,
         "tp_price":        tp_price,
         "sl_dollar":       sl_dollar,    # dollar価格単位（旧sl_pips）
         "atr_dollar":      atr_dollar,   # dollar価格単位（旧atr_pips）
-        "atr_sl_mult":     dyn_sl_mult,  # 動的調整後のSL乗数（記録用）
-        "atr_tp_mult":     dyn_tp_mult,  # 動的調整後のTP乗数（記録用）
+        "atr_sl_mult":     sl_mult,       # 動的調整後のSL乗数（記録用）
+        "atr_tp_mult":     tp_mult,       # 動的調整後のTP乗数（記録用）
         "limit_expiry":    limit_expiry,
         "ai_decision_id":  ai_decision_id,
     }

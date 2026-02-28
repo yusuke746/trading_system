@@ -59,14 +59,18 @@ def calculate_score(structured_data: dict, signal_direction: str,
 
     # 構造スコア
     zone_interaction = structured_data.get("zone_interaction", {})
+    # momentum を先に取得して trend_aligned を structure_score に渡す
+    momentum = structured_data.get("momentum", {})
+    trend_aligned = momentum.get("trend_aligned", True)
     structure_score, structure_breakdown = _calculate_structure_score(
-        zone_interaction, signal_direction
+        zone_interaction,
+        signal_direction,
+        trend_aligned=trend_aligned,
     )
     total_score += structure_score
     breakdown.update(structure_breakdown)
 
-    # モメンタムスコア
-    momentum = structured_data.get("momentum", {})
+    # モメンタムスコア（momentumはすでに取得済みのものを使う）
     momentum_score, momentum_breakdown = _calculate_momentum_score(
         momentum, signal_direction
     )
@@ -157,7 +161,9 @@ def _calculate_regime_score(regime: dict, signal_direction: str) -> tuple[float,
 
 
 def _calculate_structure_score(
-    zone_interaction: dict, signal_direction: str
+    zone_interaction: dict,
+    signal_direction: str,
+    trend_aligned: bool = True,
 ) -> tuple[float, dict]:
     """ゾーン・構造要素のスコア計算"""
     score = 0.0
@@ -170,17 +176,27 @@ def _calculate_structure_score(
     liquidity_sweep = zone_interaction.get("liquidity_sweep", False)
     sweep_direction = zone_interaction.get("sweep_direction")
 
-    # ゾーンタッチ（方向一致）
+    # ゾーンタッチ（方向一致）: Q-trend整合性で重みを分岐
     if zone_touch and _is_direction_aligned(zone_direction, signal_direction):
-        val = SCORING_CONFIG["zone_touch_aligned"]
+        if trend_aligned:
+            val = SCORING_CONFIG.get("zone_touch_aligned_with_trend",
+                                     SCORING_CONFIG["zone_touch_aligned"])
+            breakdown["zone_touch_aligned_with_trend"] = val
+        else:
+            val = SCORING_CONFIG.get("zone_touch_counter_trend", 0.08)
+            breakdown["zone_touch_counter_trend"] = val
         score += val
-        breakdown["zone_touch_aligned"] = val
 
-    # FVGタッチ（方向一致）
+    # FVGタッチ（方向一致）: Q-trend整合性で重みを分岐
     if fvg_touch and _is_direction_aligned(fvg_direction, signal_direction):
-        val = SCORING_CONFIG["fvg_touch_aligned"]
+        if trend_aligned:
+            val = SCORING_CONFIG.get("fvg_touch_aligned_with_trend",
+                                     SCORING_CONFIG["fvg_touch_aligned"])
+            breakdown["fvg_touch_aligned_with_trend"] = val
+        else:
+            val = SCORING_CONFIG.get("fvg_touch_counter_trend", 0.06)
+            breakdown["fvg_touch_counter_trend"] = val
         score += val
-        breakdown["fvg_touch_aligned"] = val
 
     # リクイディティスイープ
     if liquidity_sweep and _is_sweep_aligned(sweep_direction, signal_direction):
@@ -286,6 +302,13 @@ def _calculate_signal_quality_score(signal_quality: dict) -> tuple[float, dict]:
         val = SCORING_CONFIG["tv_win_rate_bonus"]
         score += val
         breakdown["tv_win_rate_bonus"] = val
+
+    # duplicate_warning: 同方向シグナルが30分以内に3件以上発火した場合のペナルティ
+    # NOTE: このフィールドはzone_touch cooldown実装後（バッチ3）に実際に発火する
+    if signal_quality.get("duplicate_warning", False):
+        val = -0.15
+        score += val
+        breakdown["duplicate_warning"] = val
 
     return score, breakdown
 

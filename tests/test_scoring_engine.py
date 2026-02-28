@@ -158,14 +158,15 @@ class TestRegimeScore(unittest.TestCase):
 class TestStructureScore(unittest.TestCase):
 
     def test_zone_touch_aligned_adds_score(self):
-        """ゾーンタッチ（方向一致）で加点される"""
+        """ゾーンタッチ（方向一致・Q-trend整合）で加点される"""
         data = _make_structured(
             zone_touch=True,
             zone_direction="demand",
+            trend_aligned=True,
         )
         result = calculate_score(data, "buy")
-        self.assertIn("zone_touch_aligned", result["score_breakdown"])
-        self.assertGreater(result["score_breakdown"]["zone_touch_aligned"], 0)
+        self.assertIn("zone_touch_aligned_with_trend", result["score_breakdown"])
+        self.assertGreater(result["score_breakdown"]["zone_touch_aligned_with_trend"], 0)
 
     def test_zone_touch_misaligned_no_score(self):
         """ゾーンタッチ（方向不一致）で加点されない"""
@@ -174,16 +175,18 @@ class TestStructureScore(unittest.TestCase):
             zone_direction="supply",
         )
         result = calculate_score(data, "buy")
-        self.assertNotIn("zone_touch_aligned", result["score_breakdown"])
+        self.assertNotIn("zone_touch_aligned_with_trend", result["score_breakdown"])
+        self.assertNotIn("zone_touch_counter_trend", result["score_breakdown"])
 
     def test_fvg_touch_aligned_adds_score(self):
-        """FVGタッチ（方向一致）で加点される"""
+        """FVGタッチ（方向一致・Q-trend整合）で加点される"""
         data = _make_structured(
             fvg_touch=True,
             fvg_direction="bullish",
+            trend_aligned=True,
         )
         result = calculate_score(data, "buy")
-        self.assertIn("fvg_touch_aligned", result["score_breakdown"])
+        self.assertIn("fvg_touch_aligned_with_trend", result["score_breakdown"])
 
     def test_liquidity_sweep_adds_score(self):
         """リクイディティスイープで加点される"""
