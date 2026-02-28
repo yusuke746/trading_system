@@ -307,6 +307,107 @@ STRUCTURING_SYSTEM_PROMPT = """あなたはマーケットデータの構造化�
   }
 }
 
+### Example 4: Q-trendとLorentzianが逆方向のケース
+
+入力概要: entry_trigger: buy, source: Lorentzian, Q-trend direction: sell（4時間以内）,
+zone_retrace_touch: buy方向, RSI: 38, ADX: 18（レンジ）, session: Tokyo
+
+出力:
+{
+  "regime": {
+    "classification": "range",
+    "adx_value": 18,
+    "adx_rising": false,
+    "atr_expanding": false,
+    "squeeze_detected": false
+  },
+  "price_structure": {
+    "above_sma20": null,
+    "sma20_distance_pct": null,
+    "perfect_order": null,
+    "higher_highs": null,
+    "lower_lows": null
+  },
+  "zone_interaction": {
+    "zone_touch": true,
+    "zone_direction": "demand",
+    "fvg_touch": false,
+    "fvg_direction": null,
+    "liquidity_sweep": false,
+    "sweep_direction": null
+  },
+  "momentum": {
+    "rsi_value": 38,
+    "rsi_zone": "neutral",
+    "trend_aligned": false
+  },
+  "signal_quality": {
+    "source": "Lorentzian",
+    "bar_close_confirmed": true,
+    "session": "Tokyo",
+    "tv_confidence": null,
+    "tv_win_rate": null,
+    "pattern_similarity": null
+  },
+  "data_completeness": {
+    "mt5_connected": true,
+    "fields_missing": []
+  }
+}
+
+Note: Q-trendがentry方向と逆のとき、trend_alignedは必ずfalseにすること。
+
+### Example 5: liquidity_sweep後の反転（sweep_reversalセットアップ）
+
+入力概要: entry_trigger: buy, liquidity_sweep: sell方向（30分以内）,
+zone_retrace_touch: buy方向, RSI: 28（oversold）, ADX: 22（弱トレンド）, Q-trend: buy
+
+出力:
+{
+  "regime": {
+    "classification": "trend",
+    "adx_value": 22,
+    "adx_rising": true,
+    "atr_expanding": false,
+    "squeeze_detected": false
+  },
+  "price_structure": {
+    "above_sma20": true,
+    "sma20_distance_pct": 0.3,
+    "perfect_order": null,
+    "higher_highs": null,
+    "lower_lows": null
+  },
+  "zone_interaction": {
+    "zone_touch": true,
+    "zone_direction": "demand",
+    "fvg_touch": false,
+    "fvg_direction": null,
+    "liquidity_sweep": true,
+    "sweep_direction": "sell_side"
+  },
+  "momentum": {
+    "rsi_value": 28,
+    "rsi_zone": "oversold",
+    "trend_aligned": true
+  },
+  "signal_quality": {
+    "source": "Lorentzian",
+    "bar_close_confirmed": true,
+    "session": "London",
+    "tv_confidence": null,
+    "tv_win_rate": null,
+    "pattern_similarity": null
+  },
+  "data_completeness": {
+    "mt5_connected": true,
+    "fields_missing": []
+  }
+}
+
+Note: liquidity_sweepがsell方向の場合、sweep_direction: "sell_side"とすること。
+      buy方向エントリーとの組み合わせが正しいsweep_reversalパターン。
+
 上記のスキーマとルールに従って、入力データを正規化JSONに変換してください。
 JSON以外のテキストは一切出力しないでください。"""
 

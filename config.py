@@ -65,10 +65,10 @@ SYSTEM_CONFIG = {
     "news_min_importance":      2,     # MT5重要度2以上    "news_filter_fail_safe":    True,  # True=取得失敗時はエントリーブロック / False=許可（安全側をデフォルト）
     # ── ポジション管理 v2追加 ──────────────────
     "partial_close_ratio":      0.5,   # 第1TPで50%決済
-    "partial_tp_atr_mult":      2.0,   # SL乗数に合わせて設定
-    "be_trigger_atr_mult":      1.0,   # BE発動 = ATR×1.0含み益（早めに発動）
+    "partial_tp_atr_mult":      2.5,   # SL乗数に合わせて設定
+    "be_trigger_atr_mult":      1.5,   # BE発動 = ATR×1.5含み益
     "be_buffer_pips":           2.0,   # BEの予裕幅
-    "trailing_step_atr_mult":   1.5,   # トレーリング幅（ATR基準）
+    "trailing_step_atr_mult":   2.0,   # トレーリング幅（ATR基準）
     "pm_check_interval_sec":    10,
 
     # ── 逆張り自動昇格設定 ────────────────────────
@@ -124,7 +124,7 @@ SESSION_SLTP_ADJUST = {
 # バックテストで最適化可能にするため全て外出し。
 SCORING_CONFIG = {
     # 判定閾値
-    "approve_threshold":    0.30,
+    "approve_threshold":    0.45,
     "wait_threshold":       0.10,
 
     # レジーム別基礎点
@@ -133,8 +133,12 @@ SCORING_CONFIG = {
     "regime_range_base":     -0.10,
 
     # ゾーン・構造要素
-    "zone_touch_aligned":     0.20,
-    "fvg_touch_aligned":      0.15,
+    "zone_touch_aligned":             0.20,
+    "zone_touch_aligned_with_trend":  0.20,
+    "zone_touch_counter_trend":       0.08,
+    "fvg_touch_aligned":              0.15,
+    "fvg_touch_aligned_with_trend":   0.15,
+    "fvg_touch_counter_trend":        0.06,
     "liquidity_sweep":        0.25,
     "sweep_plus_zone":        0.10,
 
@@ -146,6 +150,7 @@ SCORING_CONFIG = {
     # シグナル品質
     "bar_close_confirmed":    0.10,
     "session_london_ny":      0.05,
+    "session_tokyo":         -0.05,
     "session_off_hours":     -0.15,
 
     # 危険パターン（即reject）
@@ -162,3 +167,10 @@ SCORING_CONFIG = {
     "pattern_similarity_low":  -0.10,   # similarity < 0.30: 類似パターン希薄 → 減点
     "pattern_similarity_none":  0.00,   # similarity = None（旧バージョン互換）: 加減点なし
 }
+
+# ── 高インパクト経済指標スケジュール（UTC）──────────────────
+HIGH_IMPACT_UTC_TIMES = [
+    {"weekday": 4, "hour_start": 12, "hour_end": 14, "name": "NFP"},
+    {"weekday": 2, "hour_start": 21, "hour_end": 24, "name": "FOMC"},
+    {"weekday": 3, "hour_start": 3,  "hour_end": 6,  "name": "BOJ"},
+]

@@ -258,6 +258,11 @@ def _calculate_signal_quality_score(signal_quality: dict) -> tuple[float, dict]:
         val = SCORING_CONFIG["session_london_ny"]
         score += val
         breakdown["session_london_ny"] = val
+    elif session == "Tokyo":
+        val = SCORING_CONFIG.get("session_tokyo", 0.0)
+        if val != 0.0:
+            score += val
+            breakdown["session_tokyo"] = val
     elif session == "off_hours":
         val = SCORING_CONFIG["session_off_hours"]
         score += val
