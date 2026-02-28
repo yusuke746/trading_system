@@ -581,11 +581,15 @@ def _fallback_structurize(context: dict) -> dict:
     if q_trend_ctx:
         q_trend_direction = q_trend_ctx.get("direction")
 
-    trend_aligned = (
-        signal_direction is not None
-        and q_trend_direction is not None
-        and signal_direction == q_trend_direction
-    )
+    # Q-trendが未受信（None）の場合は「不明」扱いでaligned=True（逆トレンドではない）
+    # 明示的に逆方向とわかった場合のみ逆トレンドと判定する
+    if q_trend_direction is None:
+        trend_aligned = True   # データ不明 → aligned扱い（逆トレンド減点を防ぐ）
+    else:
+        trend_aligned = (
+            signal_direction is not None
+            and signal_direction == q_trend_direction
+        )
 
     # ── シグナル品質 ────────────────────────────────────
     source = "unknown"

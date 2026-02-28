@@ -26,7 +26,8 @@ SYSTEM_CONFIG = {
     # risk_percent=2.0%なら細4負け相当で停止。一般的なリスク管理基準（5%）に準拠。
     "max_daily_loss_percent":   -5.0,    # 1日の確定損失上限（残高比率%）
     "max_consecutive_losses":   3,       # 連続SL被弾で自動停止
-    "gap_block_threshold_usd":  15.0,    # 週明けギャップブロック閾値（ドル）    "fallback_balance":         10000.0, # MT5未接続時のフォールバック残高（ドル）
+    "gap_block_threshold_usd":  15.0,    # 週明けギャップブロック閃値（ドル）
+    "fallback_balance":         10000.0, # MT5未接続時のフォールバック残高（ドル）
     # ── 注文設定 ─────────────────────────────────
     "deviation":            20,
     "magic_number":         20260223,
@@ -62,7 +63,8 @@ SYSTEM_CONFIG = {
     "news_block_before_min":    30,    # 発表前30分ブロック
     "news_block_after_min":     30,    # 発表後30分ブロック
     "news_target_currencies":   ["USD", "EUR"],
-    "news_min_importance":      2,     # MT5重要度2以上    "news_filter_fail_safe":    True,  # True=取得失敗時はエントリーブロック / False=許可（安全側をデフォルト）
+    "news_min_importance":      2,     # MT5重要度2以上
+    "news_filter_fail_safe":    True,  # True=取得失敗時はエントリーブロック / False=許可（安全側をデフォルト）
     # ── ポジション管理 v2追加 ──────────────────
     "partial_close_ratio":      0.5,   # 第1TPで50%決済
     "partial_tp_atr_mult":      2.5,   # SL乗数に合わせて設定

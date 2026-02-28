@@ -12,7 +12,8 @@ from config import SYSTEM_CONFIG
 
 logger = logging.getLogger(__name__)
 
-WINDOW_MS = SYSTEM_CONFIG["collection_window_ms"]   # 500ms
+WINDOW_MS       = SYSTEM_CONFIG["collection_window_ms"]   # 500ms
+MAX_BUFFER_SIZE = SYSTEM_CONFIG.get("signal_buffer_size", 50) * 4  # 差し戻しループによる無限蓄積防止の上限（上限超過は履歴を破棄）
 
 
 class SignalCollector:
@@ -64,8 +65,16 @@ class SignalCollector:
             logger.error("バッチ処理コールバック例外: %s", e, exc_info=True)
             # コールバック失敗時はバッファに差し戻す（シグナル消滅防止）
             with self._lock:
-                self._buffer[:0] = batch   # 先頭に挿入して順序保持
-                logger.warning("⚠️ バッファに %d件を差し戻しました（リカバリー）", len(batch))
+                merged = batch + self._buffer  # batchを先頭に挿入して順序保持
+                if len(merged) > MAX_BUFFER_SIZE:
+                    excess = len(merged) - MAX_BUFFER_SIZE
+                    merged = merged[:MAX_BUFFER_SIZE]
+                    logger.error(
+                        "🚨 バッファ上限(%d)超過。古いシグナル %d件を破棄しました（コールバック恒常失敗の可能性）",
+                        MAX_BUFFER_SIZE, excess,
+                    )
+                self._buffer = merged
+                logger.warning("⚠️ バッファに %d件を差し戻しました（リカバリー）", len(merged))
 
     # デバッグ・テスト用
     def flush_now(self) -> None:

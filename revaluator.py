@@ -95,9 +95,10 @@ class Revaluator:
             "elapsed_seconds": elapsed,
         }
 
-        messages   = build_prompt(context)
-        ai_result  = ask_ai(messages)
-        decision   = ai_result.get("decision")
+        messages         = build_prompt(context)
+        signal_direction = item.entry_signals[0].get("direction") if item.entry_signals else None
+        ai_result        = ask_ai(messages, context=context, signal_direction=signal_direction)
+        decision         = ai_result.get("decision")
 
         logger.info("🔄 再評価結果[%d]: id=%s decision=%s",
                     item.reeval_count, item.item_id[:8], decision)

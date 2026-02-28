@@ -71,8 +71,9 @@ def calculate_score(structured_data: dict, signal_direction: str,
     breakdown.update(structure_breakdown)
 
     # モメンタムスコア（momentumはすでに取得済みのものを使う）
+    has_sweep = zone_interaction.get("liquidity_sweep", False)
     momentum_score, momentum_breakdown = _calculate_momentum_score(
-        momentum, signal_direction
+        momentum, signal_direction, has_sweep=has_sweep
     )
     total_score += momentum_score
     breakdown.update(momentum_breakdown)
@@ -214,7 +215,7 @@ def _calculate_structure_score(
 
 
 def _calculate_momentum_score(
-    momentum: dict, signal_direction: str
+    momentum: dict, signal_direction: str, has_sweep: bool = False
 ) -> tuple[float, dict]:
     """モメンタムスコア計算"""
     score = 0.0
@@ -249,10 +250,11 @@ def _calculate_momentum_score(
             breakdown["rsi_divergence"] = val
 
     # トレンド逆行チェック（スイープなし）
-    if not trend_aligned and momentum.get("trend_aligned") is not None:
-        # trend_aligned=Falseかつデータが存在する場合
-        # counter_trend_no_sweep の減点は、スイープがない場合のみ
-        pass  # この減点はstructure_scoreで既にカバーされるため、ここでは追加しない
+    # trend_alignedが明示的にFalseかつスイープによる逆張り根拠がない場合のみ減点
+    if not trend_aligned and momentum.get("trend_aligned") is not None and not has_sweep:
+        val = SCORING_CONFIG["counter_trend_no_sweep"]
+        score += val
+        breakdown["counter_trend_no_sweep"] = val
 
     return score, breakdown
 
@@ -339,15 +341,14 @@ def _is_direction_aligned(zone_direction: str | None, signal_direction: str) -> 
 
 
 def _is_sweep_aligned(sweep_direction: str | None, signal_direction: str) -> bool:
-    """スイープ方向がシグナル方向と逆（=反転エントリー方向と一致）かチェック"""
+    """スイープ方向がシグナル方向と逆張り（反転エントリー）として一致するかチェック"""
     if sweep_direction is None:
         return False
-    # buy_side sweep（買い側の流動性を狩った）→ sell方向にエントリー... ではなく
-    # buy_side sweep → 売り圧力が尽きた → buy方向にエントリーが正しい
-    # sell_side sweep → 買い圧力が尽きた → sell方向にエントリーが正しい
-    if sweep_direction == "sell_side" and signal_direction == "sell":
+    # sell_side sweep（売り側の流動性を狩った）→ 売り圧力が解消 → buy方向が正しい逆張り
+    # buy_side sweep（買い側の流動性を狩った）→ 買い圧力が解消 → sell方向が正しい逆張り
+    if sweep_direction == "sell_side" and signal_direction == "buy":
         return True
-    if sweep_direction == "buy_side" and signal_direction == "buy":
+    if sweep_direction == "buy_side" and signal_direction == "sell":
         return True
     return False
 

@@ -282,13 +282,13 @@ def build_order_params(trigger: dict, ai_result: dict,
                             currency, balance, currency, balance_usd, rate,
                         )
                     else:
-                        # レート取得不可: フォールバックとして残高をそのまま使用せず警告
+                        # レート取得不可: 生残高をそのまま使わず fallback_balance を使用（過大ロット防止）
+                        balance_usd = SYSTEM_CONFIG.get("fallback_balance", 10000.0)
                         logger.warning(
                             "⚠️ 口座通貨=%s のUSD換算レートが取得できません。"
-                            "ロット計算が不正確になる可能性があります。",
-                            currency,
+                            "fallback_balance=%.2f USDを使用します（過大ロット防止）",
+                            currency, balance_usd,
                         )
-                        balance_usd = balance  # フォールバック（過大リスクになる可能性）
 
     risk_amount = balance_usd * (RISK_PERCENT / 100.0)
     lot_size    = round(risk_amount / (sl_dollar * 100.0), 2)

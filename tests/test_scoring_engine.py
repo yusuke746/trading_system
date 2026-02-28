@@ -191,19 +191,19 @@ class TestStructureScore(unittest.TestCase):
         self.assertIn("fvg_touch_aligned_with_trend", result["score_breakdown"])
 
     def test_liquidity_sweep_adds_score(self):
-        """リクイディティスイープで加点される"""
+        """リクイディティスイープで加点される（sell_side sweep + buy entry = 正しい逆張り）"""
         data = _make_structured(
             liquidity_sweep=True,
-            sweep_direction="buy_side",
+            sweep_direction="sell_side",
         )
         result = calculate_score(data, "buy")
         self.assertIn("liquidity_sweep", result["score_breakdown"])
 
     def test_sweep_plus_zone_combo_bonus(self):
-        """スイープ + ゾーンタッチのコンボボーナス"""
+        """スイープ + ゾーンタッチのコンボボーナス（sell_side sweep + demand zone + buy entry）"""
         data = _make_structured(
             liquidity_sweep=True,
-            sweep_direction="buy_side",
+            sweep_direction="sell_side",
             zone_touch=True,
             zone_direction="demand",
         )
@@ -276,7 +276,7 @@ class TestSignalQualityScore(unittest.TestCase):
 class TestDecisionThresholds(unittest.TestCase):
 
     def test_high_score_approves(self):
-        """高スコアで approve される"""
+        """高スコアで approve される（sell_side sweep + buy = 正しい逆張り）"""
         data = _make_structured(
             regime="trend",
             trend_aligned=True,
@@ -285,7 +285,7 @@ class TestDecisionThresholds(unittest.TestCase):
             bar_close_confirmed=True,
             session="London_NY",
             liquidity_sweep=True,
-            sweep_direction="buy_side",
+            sweep_direction="sell_side",
         )
         result = calculate_score(data, "buy")
         self.assertEqual(result["decision"], "approve")
