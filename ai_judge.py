@@ -38,7 +38,9 @@ def ask_ai(messages: list[dict], context: dict | None = None,
         if context is not None:
             structured = structurize(context)
             direction = signal_direction or _extract_direction(context)
-            score_result = calculate_score(structured, direction)
+            q_trend_available = context.get("q_trend_context") is not None
+            score_result = calculate_score(structured, direction,
+                                           q_trend_available=q_trend_available)
 
             result = {
                 "market_regime": structured.get("regime", {}).get("classification", "range"),
