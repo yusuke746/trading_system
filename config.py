@@ -156,5 +156,9 @@ SCORING_CONFIG = {
     # TradingView品質
     "tv_confidence_high":     0.10,
     "tv_confidence_low":     -0.10,
-    "tv_win_rate_bonus":      0.05,
+    # pattern_similarity: Lorentzian v2の新フィールド（avg_distanceの反転正規化）
+    # デモ蓄積後に閾値を調整すること。現時点は保守的設定。
+    "pattern_similarity_high":  0.10,   # similarity > 0.70: 過去に類似パターンあり → 加点
+    "pattern_similarity_low":  -0.10,   # similarity < 0.30: 類似パターン希薄 → 減点
+    "pattern_similarity_none":  0.00,   # similarity = None（旧バージョン互換）: 加減点なし
 }

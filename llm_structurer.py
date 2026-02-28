@@ -83,7 +83,8 @@ STRUCTURED_OUTPUT_SCHEMA = {
                 "bar_close_confirmed": {"type": "boolean"},
                 "session": {"type": "string"},
                 "tv_confidence": {"type": ["number", "null"]},
-                "tv_win_rate": {"type": ["number", "null"]}
+                "tv_win_rate": {"type": ["number", "null"]},
+                "pattern_similarity": {"type": ["number", "null"]}
             }
         },
         "data_completeness": {
@@ -142,7 +143,8 @@ STRUCTURING_SYSTEM_PROMPT = """あなたはマーケットデータの構造化�
     "bar_close_confirmed": bool,
     "session": "Tokyo" | "London" | "NY" | "London_NY" | "off_hours",
     "tv_confidence": float | null,
-    "tv_win_rate": float | null
+    "tv_win_rate": null（Lorentzian v2では廃止。常にnullとして扱う）,
+    "pattern_similarity": float(0.0〜1.0) | null（Lorentzian v2の新フィールド。avg_distanceの反転正規化値。高いほど過去パターンと高類似）
   },
   "data_completeness": {
     "mt5_connected": bool,
@@ -489,12 +491,14 @@ def _fallback_structurize(context: dict) -> dict:
     bar_close_confirmed = False
     tv_confidence = None
     tv_win_rate = None
+    pattern_similarity = None
     if entry_signals:
         sig = entry_signals[0]
         source = sig.get("source", "unknown")
         bar_close_confirmed = sig.get("confirmed") == "bar_close"
         tv_confidence = _safe_float(sig.get("tv_confidence"))
-        tv_win_rate = _safe_float(sig.get("tv_win_rate"))
+        tv_win_rate = _safe_float(sig.get("tv_win_rate"))          # 後方互換（旧バージョン）
+        pattern_similarity = _safe_float(sig.get("pattern_similarity"))  # Lorentzian v2
 
     session = "off_hours"
     session_info = stat_ctx.get("session_info", {})
@@ -542,7 +546,8 @@ def _fallback_structurize(context: dict) -> dict:
             "bar_close_confirmed": bar_close_confirmed,
             "session": session,
             "tv_confidence": tv_confidence,
-            "tv_win_rate": tv_win_rate,
+            "tv_win_rate": tv_win_rate,          # 後方互換（旧バージョン、通常None）
+            "pattern_similarity": pattern_similarity,   # Lorentzian v2（新フィールド）
         },
         "data_completeness": {
             "mt5_connected": mt5_connected,
@@ -587,6 +592,7 @@ def _validate_and_fix_schema(data: dict) -> dict:
             "session": "off_hours",
             "tv_confidence": None,
             "tv_win_rate": None,
+            "pattern_similarity": None,
         },
         "data_completeness": {
             "mt5_connected": False,

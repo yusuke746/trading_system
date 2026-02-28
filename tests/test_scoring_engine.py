@@ -38,7 +38,8 @@ def _make_structured(
     bar_close_confirmed=True,
     session="London",
     tv_confidence=None,
-    tv_win_rate=None,
+    tv_win_rate=None,        # 後方互換のため残す
+    pattern_similarity=None, # Lorentzian v2
     sma20_distance_pct=None,
     fields_missing=None,
 ) -> dict:
@@ -76,6 +77,7 @@ def _make_structured(
             "session": session,
             "tv_confidence": tv_confidence,
             "tv_win_rate": tv_win_rate,
+            "pattern_similarity": pattern_similarity,
         },
         "data_completeness": {
             "mt5_connected": True,
@@ -328,6 +330,55 @@ class TestDecisionThresholds(unittest.TestCase):
 # ──────────────────────────────────────────────────────────
 # エントリーポイント
 # ──────────────────────────────────────────────────────────
+
+class TestPatternSimilarity(unittest.TestCase):
+
+    def test_pattern_similarity_high_adds_score(self):
+        """pattern_similarity > 0.70 → pattern_similarity_high加点"""
+        structured = _make_structured(
+            regime="trend",
+            zone_touch=True, zone_direction="demand",
+            trend_aligned=True,
+            bar_close_confirmed=True,
+            pattern_similarity=0.85,
+        )
+        result = calculate_score(structured, "buy")
+        self.assertIn("pattern_similarity_high", result["score_breakdown"])
+        self.assertGreater(result["score_breakdown"]["pattern_similarity_high"], 0)
+
+    def test_pattern_similarity_low_reduces_score(self):
+        """pattern_similarity < 0.30 → pattern_similarity_low減点"""
+        structured = _make_structured(
+            regime="trend",
+            zone_touch=True, zone_direction="demand",
+            trend_aligned=True,
+            bar_close_confirmed=True,
+            pattern_similarity=0.15,
+        )
+        result = calculate_score(structured, "buy")
+        self.assertIn("pattern_similarity_low", result["score_breakdown"])
+        self.assertLess(result["score_breakdown"]["pattern_similarity_low"], 0)
+
+    def test_pattern_similarity_none_no_effect(self):
+        """pattern_similarity=None（旧バージョン互換）→ 加減点なし"""
+        structured_with = _make_structured(
+            regime="trend", zone_touch=True, zone_direction="demand",
+            trend_aligned=True, pattern_similarity=0.50,
+        )
+        structured_none = _make_structured(
+            regime="trend", zone_touch=True, zone_direction="demand",
+            trend_aligned=True, pattern_similarity=None,
+        )
+        result_with = calculate_score(structured_with, "buy")
+        result_none = calculate_score(structured_none, "buy")
+        # Noneの場合はpattern_similarity系のキーがbreakdownに存在しない
+        self.assertNotIn("pattern_similarity_high", result_none["score_breakdown"])
+        self.assertNotIn("pattern_similarity_low", result_none["score_breakdown"])
+
+    def test_tv_win_rate_bonus_removed(self):
+        """tv_win_rate_bonusキーがSCORING_CONFIGに存在しないこと"""
+        self.assertNotIn("tv_win_rate_bonus", SCORING_CONFIG)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

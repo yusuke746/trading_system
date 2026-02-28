@@ -85,7 +85,8 @@ def validate_and_normalize(raw: dict) -> dict | None:
     except (ValueError, TypeError):
         tv_confidence = None
 
-    # tv_win_rate: TradingViewのLorentzianが計算した勝率（0〜100のパーセント値 → 0.0〜1.0に正規化）
+    # tv_win_rate: 旧フィールド。Lorentzian v2では送信されなくなったため
+    # 後方互換のためフィールドが存在すれば受け取るが、なければNone
     try:
         tv_win_rate_raw = float(raw["win_rate"]) if "win_rate" in raw else None
         if tv_win_rate_raw is not None and not (0.0 <= tv_win_rate_raw <= 100.0):
@@ -94,6 +95,22 @@ def validate_and_normalize(raw: dict) -> dict | None:
         tv_win_rate = round(tv_win_rate_raw / 100.0, 3) if tv_win_rate_raw is not None else None
     except (ValueError, TypeError):
         tv_win_rate = None
+
+    # pattern_similarity: Lorentzian v2で追加。avg_distanceの反転正規化値（0.0〜1.0）
+    # 高いほど過去パターンと高類似 = 予測の信頼性が高い
+    try:
+        pattern_similarity = float(raw["pattern_similarity"]) if "pattern_similarity" in raw else None
+        if pattern_similarity is not None and not (0.0 <= pattern_similarity <= 1.0):
+            logger.warning("pattern_similarity範囲外: %.4f → Noneにクランプ", pattern_similarity)
+            pattern_similarity = None
+    except (ValueError, TypeError):
+        pattern_similarity = None
+
+    # avg_distance: Lorentzianの生の平均ローレンツィアン距離（ログ記録用）
+    try:
+        avg_distance = float(raw["avg_distance"]) if "avg_distance" in raw else None
+    except (ValueError, TypeError):
+        avg_distance = None
 
     normalized = {
         "symbol":        normalize_symbol(raw.get("symbol", "GOLD")),
@@ -106,9 +123,11 @@ def validate_and_normalize(raw: dict) -> dict | None:
         "strength":      raw.get("strength", ""),
         "comment":       raw.get("comment", ""),
         "confirmed":     raw.get("confirmed", ""),
-        "tv_confidence": tv_confidence,
-        "tv_win_rate":   tv_win_rate,
-        "received_at":   datetime.now(timezone.utc).isoformat(),
+        "tv_confidence":     tv_confidence,
+        "tv_win_rate":       tv_win_rate,
+        "pattern_similarity": pattern_similarity,
+        "avg_distance":      avg_distance,
+        "received_at":       datetime.now(timezone.utc).isoformat(),
     }
 
     # time フィールドが存在すれば保持

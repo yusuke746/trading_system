@@ -275,12 +275,20 @@ def _calculate_signal_quality_score(signal_quality: dict) -> tuple[float, dict]:
             score += val
             breakdown["tv_confidence_low"] = val
 
-    # TV win rate
-    tv_win_rate = signal_quality.get("tv_win_rate")
-    if tv_win_rate is not None and tv_win_rate > 0.6:
-        val = SCORING_CONFIG["tv_win_rate_bonus"]
-        score += val
-        breakdown["tv_win_rate_bonus"] = val
+    # pattern_similarity: Lorentzian v2の新フィールド
+    # None の場合は旧バージョンのアラート（win_rateのみ）→ 加減点なし
+    pattern_similarity = signal_quality.get("pattern_similarity")
+    if pattern_similarity is not None:
+        if pattern_similarity > 0.70:
+            val = SCORING_CONFIG["pattern_similarity_high"]
+            score += val
+            breakdown["pattern_similarity_high"] = val
+        elif pattern_similarity < 0.30:
+            val = SCORING_CONFIG["pattern_similarity_low"]
+            score += val
+            breakdown["pattern_similarity_low"] = val
+    # else: 0.30〜0.70の中間域は加減点なし（ニュートラル）
+    # Noneの場合（旧バージョンアラート）も加減点なし
 
     return score, breakdown
 
