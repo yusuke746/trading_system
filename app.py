@@ -166,6 +166,11 @@ def startup():
     meta_opt = MetaOptimizer()
     meta_opt.start_weekly_scheduler()
 
+    # DbMaintenance: 毎週日曜UTC21:00にDB保持ポリシー適用+VACUUM（バックグラウンド）
+    from db_maintenance import DbMaintenance
+    db_maint = DbMaintenance()
+    db_maint.start_weekly_scheduler()
+
     logger.info("[5/5] Flask起動 port=%d", FLASK_PORT)
     logger.info("=" * 60)
     logger.info("  🚀 システム起動完了")

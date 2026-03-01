@@ -236,6 +236,20 @@ def init_db() -> None:
             pnl_usd          REAL DEFAULT NULL
         )""")
 
+        # ── インデックス（クエリ高速化・保守用）────────────
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_signals_received_at         ON signals(received_at)",
+            "CREATE INDEX IF NOT EXISTS idx_ai_decisions_created_at      ON ai_decisions(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_ai_decisions_decision        ON ai_decisions(decision)",
+            "CREATE INDEX IF NOT EXISTS idx_executions_created_at        ON executions(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_trade_results_closed_at      ON trade_results(closed_at)",
+            "CREATE INDEX IF NOT EXISTS idx_system_events_created_at     ON system_events(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_scoring_history_created_at   ON scoring_history(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_wait_history_created_at      ON wait_history(created_at)",
+        ]
+        for idx_sql in indexes:
+            c.execute(idx_sql)
+
         conn.commit()
         logger.info("✅ DB初期化完了: %s", DB_PATH)
     finally:

@@ -1,6 +1,6 @@
-# AI Trading System v3.0
+# AI Trading System v3.5
 
-TradingViewアラート × LLM構造化 × スコアリングエンジン × MT5  
+TradingViewアラート × LLM構造化 × スコアリングエンジン × MT5
 XMTrading / XAUUSD 専用 完全自動取引システム
 
 ---
@@ -20,7 +20,7 @@ XMTrading / XAUUSD 専用 完全自動取引システム
         ↓
 ② 500msバッファに溜める（まとめて処理）
         ↓
-③ LLMが生データを正規化JSONに構造化
+③ ルールベース（または実験的LLM）で生データを正規化JSONに構造化
         ↓
 ④ スコアリングエンジンが数値ルールで approve/wait/reject を判定
         ↓
@@ -28,6 +28,16 @@ XMTrading / XAUUSD 専用 完全自動取引システム
         ↓
 ⑥ ポジション管理（利確・損切り・トレーリング）
 ```
+
+毎週日曜 UTC 20:00 に MetaOptimizer がバックグラウンドで自動実行され、SCORING_CONFIG を安全ガード付きで自動調整します。
+
+### v3.0 → v3.5 の変更点
+
+| v3.0 | v3.5 |
+|---|---|
+| `structurize()` は常にLLMを呼び出す | デフォルトは**ルールベース**、`LLM_STRUCTURIZE=1` のときのみ LLM を使用 |
+| `APPROVE_THRESHOLD` をモジュールロード時に読み込む | `calculate_score()` 内で毎回 config から読み直す（動的更新に対応） |
+| パラメータ調整は手動 | **MetaOptimizer** が週次自動最適化（安全ガード3条件付き） |
 
 ### v2.0 → v3.0 の根本的な変更点
 
@@ -47,9 +57,10 @@ XMTrading / XAUUSD 専用 完全自動取引システム
 | `batch_processor.py` | **コーディネーター**。まとめた合図をパイプラインに渡す段取りをする |
 | `context_builder.py` | **情報収集係**。MT5から相場の状況データを集めてLLMに渡す |
 | `prompt_builder.py` | **翻訳係**。相場データをLLMが読めるプロンプトに変換する |
-| `llm_structurer.py` | **構造化係**。LLMを使って生データを正規化JSONに変換する（判定はしない） |
-| `scoring_engine.py` | **審査員**。構造化データを受け取り、数値ルールで approve/wait/reject を判定する |
+| `llm_structurer.py` | **構造化係**。デフォルトはルールベースで高速・確定的に正規化JSON生成。`LLM_STRUCTURIZE=1` でLLM実験モードに切替可能 |
+| `scoring_engine.py` | **審査員**。構造化データを受け取り、数値ルールで approve/wait/reject を判定する（config を毎回読み直して動的更新に対応） |
 | `ai_judge.py` | **パイプライン窓口**。llm_structurer → scoring_engine を呼び出し、旧形式で結果を返す |
+| `meta_optimizer.py` | **自動調整係**。毎週日曜UTC20:00にDBを分析し、安全ガード付きで SCORING_CONFIG を自動最適化する |
 | `executor.py` | **注文係**。approveが出たら実際にMT5で注文を出す |
 | `position_manager.py` | **管理係**。ポジションをずっと監視して利確・損切りを自動管理する |
 | `risk_manager.py` | **リスク番人**。1日の損失上限・連続負け・週明けギャップを監視する |
@@ -130,9 +141,9 @@ XMTrading / XAUUSD 専用 完全自動取引システム
 ```
 設計・可読性    ████████████████████  90点
 リスク管理      ████████████████████  85点
-AI活用度        ████████████████████  90点（v3.0で向上）
+AI活用度        ████████████████████  90点（v3.5で維持）
 ポジション管理  ████████████████      80点
-テスト・品質    ██████████████████    75点（146件に拡充）
+テスト・品質    ██████████████████    75点（157件に拡充）
 汎用性          ████████████          60点
 ─────────────────────────────────────
 平均            ████████████████████  80点 / 100点
@@ -155,6 +166,13 @@ AI活用度        ████████████████████ 
 4. ✅ **ニュースフィルターのフェイルセーフ**（取得失敗時にブロック・`fail_safe_triggered`キー）
 5. ✅ **日次損失上限を-10%→-5%に見直し**（残高比率判定・フォールバック残高をconfigから取得）
 
+**v3.5 で実施された変更：**
+1. ✅ **`structurize()` をルールベースデフォルトに変更**（`LLM_STRUCTURIZE=1` のときのみ LLM 使用・APIコストゼロ化）
+2. ✅ **`calculate_score()` の閾値を動的読み込みに修正**（モジュールロード時の固定値バグを解消・MetaOptimizer による動的更新に対応）
+3. ✅ **`meta_optimizer.py` 新規追加**（毎週日曜UTC20:00に自動実行・安全ガード3条件・バックテスト検証付き）
+4. ✅ **`app.py` に MetaOptimizer 起動を追加**（startup() でバックグラウンドスケジューラ起動）
+5. ✅ **ユニットテスト 146件 → 157件に拡充**（`test_meta_optimizer.py` 11件追加）
+
 **v3.0 で実施された変更：**
 1. ✅ **LLMの役割を「構造化専任」に変更**（`llm_structurer.py` 新規追加）
 2. ✅ **数値ルールベーススコアリングエンジン実装**（`scoring_engine.py` 新規追加）
@@ -175,7 +193,7 @@ cd trading_system
 python -m pytest tests/ -v
 ```
 
-### テスト一覧（146件）
+### テスト一覧（157件）
 
 | ファイル | テストクラス | 件数 | 内容 |
 |---|---|---|---|
@@ -206,21 +224,26 @@ python -m pytest tests/ -v
 | `tests/test_ai_judge_v3.py` | TestShouldExecute | 5件 | should_execute() の判定ロジック |
 | `tests/test_ai_judge_v3.py` | TestScoreToConfidence | 4件 | _score_to_confidence() のマッピング |
 | `tests/test_ai_judge_v3.py` | TestErrorHandling | 1件 | エラー時の reject フォールバック |
+| `tests/test_meta_optimizer.py` | TestSafetyCheck | 7件 | 安全ガードのパラメータバリデーション（変更幅・範囲・閾値制限） |
+| `tests/test_meta_optimizer.py` | TestApplyConfig | 2件 | config.py の原子的書き換え検証 |
+| `tests/test_meta_optimizer.py` | TestTunableParams | 2件 | TUNABLE_PARAMS の SCORING_CONFIG 整合性チェック |
 
 ---
 
-## 🏗 スコアリングエンジン（v3.0）
+## 🏗 スコアリングエンジン（v3.5）
 
 ### アーキテクチャ
 
 ```
 生コンテキストデータ (context_builder.py)
         ↓
-llm_structurer.py (LLM or ルールベースフォールバック)
+llm_structurer.py (デフォルト: ルールベース / LLM_STRUCTURIZE=1 のときのみ LLM)
         ↓ 正規化JSON
-scoring_engine.py (Python if/else ルール)
+scoring_engine.py (Python if/else ルール / config を毎回読み直して動的更新対応)
         ↓
 { decision: approve/wait/reject, score: float, score_breakdown: {...} }
+        ↓ 週次バックグラウンド
+meta_optimizer.py (毎週日曜UTC20:00 / 安全ガード付き SCORING_CONFIG 自動更新)
 ```
 
 ### スコア加減点ルール（SCORING_CONFIG）
@@ -465,8 +488,9 @@ LIMIT  10;
 | コンポーネント | 技術 | 役割 |
 |---|---|---|
 | 受信サーバー | Python / Flask | TradingViewアラートのWebhook受信 |
-| LLM構造化エンジン | GPT-4o-mini (OpenAI) | 生データを正規化JSONに変換（判定は行わない） |
-| スコアリングエンジン | Python ルールベース | 構造化データから approve/wait/reject を数値判定 |
+| LLM構造化エンジン | GPT-4o-mini (OpenAI) | 生データを正規化JSONに変換（デフォルト無効・`LLM_STRUCTURIZE=1` で有効化） |
+| スコアリングエンジン | Python ルールベース | 構造化データから approve/wait/reject を数値判定（config 動的読み込み） |
+| 週次最適化 | MetaOptimizer | 毎週日曜UTC20:00に SCORING_CONFIG を安全ガード付きで自動調整 |
 | 取引執行 | MetaTrader5 (Python) | XMTradingへの注文送信 |
 | ニュースフィルター | MT5カレンダーAPI | 重要指標前後30分のエントリー禁止 |
 | ポジション管理 | position_manager.py | 段階的利確＋BE移動＋トレーリング |
@@ -488,9 +512,10 @@ trading_system/
 ├── batch_processor.py     # バッチ処理パイプライン
 ├── context_builder.py     # AIコンテキスト組み立て（MT5指標含む）
 ├── prompt_builder.py      # LLM向けプロンプト生成
-├── llm_structurer.py      # LLMによるデータ構造化（v3.0追加）
-├── scoring_engine.py      # 数値ルールベーススコアリング（v3.0追加）
+├── llm_structurer.py      # LLMによるデータ構造化（v3.0追加・v3.5でルールベースデフォルト化）
+├── scoring_engine.py      # 数値ルールベーススコアリング（v3.0追加・v3.5で動的config読み込み対応）
 ├── ai_judge.py            # AI判定パイプライン窓口（v3.0: 後方互換維持）
+├── meta_optimizer.py      # 週次自動パラメータ最適化エンジン（v3.5追加）
 ├── executor.py            # MT5注文執行モジュール（動的パラメータ統合）
 ├── market_hours.py        # 市場クローズ判定（XMサーバータイム）
 ├── news_filter.py         # ニュースフィルター
@@ -515,7 +540,8 @@ trading_system/
 │   ├── test_news_filter.py       # news_filter.py ユニットテスト（8件）
 │   ├── test_llm_structurer.py    # llm_structurer.py ユニットテスト（24件）（v3.0追加）
 │   ├── test_scoring_engine.py    # scoring_engine.py ユニットテスト（26件）（v3.0追加）
-│   └── test_ai_judge_v3.py       # ai_judge.py v3.0 ユニットテスト（14件）（v3.0追加）
+│   ├── test_ai_judge_v3.py       # ai_judge.py v3.0 ユニットテスト（14件）（v3.0追加）
+│   └── test_meta_optimizer.py    # meta_optimizer.py ユニットテスト（11件）（v3.5追加）
 ├── requirements.txt       # Python依存ライブラリ
 ├── .env.example           # 環境変数テンプレート
 ├── .gitignore             # Git除外設定
@@ -555,6 +581,8 @@ MT5_SERVER=XMTrading-MT5x
 OPENAI_API_KEY=sk-...
 LINE_NOTIFY_TOKEN=your_token
 FLASK_PORT=5000
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...  # MetaOptimizer 通知用（任意）
+LLM_STRUCTURIZE=0  # 1 にすると structurize() が LLM を使用（デフォルト: 0=ルールベース）
 ```
 
 > ⚠️ `.env` は絶対に Git にコミットしないこと
