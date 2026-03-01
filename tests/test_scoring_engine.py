@@ -314,8 +314,8 @@ class TestDecisionThresholds(unittest.TestCase):
         )
         result = calculate_score(data, "buy")
         # trend_aligned(0.10) + regime_trend_base(0.15) = 0.25
-        # bar_close_confirmed=False なので +0.10がない
-        # 合計 0.25 >= wait_threshold(0.10) かつ < approve_threshold(0.30)
+        # bar_close_confirmed=False なので +0.10 がない
+        # 合計 0.25 >= wait_threshold(0.10) かつ < approve_threshold(0.45)
         self.assertEqual(result["decision"], "wait")
         self.assertIsNotNone(result["wait_condition"])
 

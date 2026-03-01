@@ -12,11 +12,6 @@ from config import SCORING_CONFIG
 
 logger = logging.getLogger(__name__)
 
-# 閾値
-APPROVE_THRESHOLD = SCORING_CONFIG["approve_threshold"]
-WAIT_THRESHOLD = SCORING_CONFIG["wait_threshold"]
-
-
 def calculate_score(structured_data: dict, signal_direction: str,
                     q_trend_available: bool = True) -> dict:
     """
@@ -35,6 +30,11 @@ def calculate_score(structured_data: dict, signal_direction: str,
             "wait_condition": str | None,
         }
     """
+    # config を毎回読み直す（meta_optimizer による動的更新に対応）
+    from config import SCORING_CONFIG as _cfg
+    approve_threshold = _cfg["approve_threshold"]
+    wait_threshold    = _cfg["wait_threshold"]
+
     # 即rejectチェック
     reject_reasons = _check_instant_reject(structured_data, signal_direction,
                                            q_trend_available)
@@ -87,10 +87,10 @@ def calculate_score(structured_data: dict, signal_direction: str,
     total_score = round(total_score, 4)
 
     # 判定
-    if total_score >= APPROVE_THRESHOLD:
+    if total_score >= approve_threshold:
         decision = "approve"
         wait_condition = None
-    elif total_score >= WAIT_THRESHOLD:
+    elif total_score >= wait_threshold:
         decision = "wait"
         wait_condition = _determine_wait_condition(structured_data, breakdown)
     else:

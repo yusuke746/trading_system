@@ -414,44 +414,46 @@ JSON以外のテキストは一切出力しないでください。"""
 
 def structurize(context: dict) -> dict:
     """
-    LLMを使ってコンテキストを構造化する。
-    APIエラー時はrule-basedフォールバックを返す。
+    コンテキストを構造化する。
 
-    Args:
-        context: context_builder.py が生成するコンテキスト dict
+    通常ルート（デフォルト）: ルールベース（_fallback_structurize）を使用。
+      高速・確定的・APIコストゼロ。
 
-    Returns:
-        正規化された構造データ dict
+    実験ルート: 環境変数 LLM_STRUCTURIZE=1 のときのみ LLM を使用。
+      比較検証用。失敗時はルールベースにフォールバック。
     """
+    if os.getenv("LLM_STRUCTURIZE", "0") != "1":
+        # 通常ルート: ルールベース
+        result = _fallback_structurize(context)
+        logger.debug(
+            "ルールベース構造化: regime=%s",
+            result.get("regime", {}).get("classification", "unknown"),
+        )
+        return result
+
+    # 実験ルート: LLM（LLM_STRUCTURIZE=1 のときのみ）
     try:
         client = _get_client()
-
         user_content = json.dumps(context, ensure_ascii=False, default=str)
-
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": STRUCTURING_SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
+                {"role": "user",   "content": user_content},
             ],
             response_format={"type": "json_object"},
             temperature=0.0,
             max_tokens=2048,
         )
-        content = response.choices[0].message.content
-        result = json.loads(content)
-
-        # スキーマの基本検証
+        result = json.loads(response.choices[0].message.content)
         result = _validate_and_fix_schema(result)
-
         logger.info(
-            "🔧 LLM構造化完了: regime=%s",
+            "LLM構造化（実験モード）: regime=%s",
             result.get("regime", {}).get("classification", "unknown"),
         )
         return result
-
     except Exception as e:
-        logger.warning("LLM構造化API失敗、フォールバック使用: %s", e)
+        logger.warning("LLM構造化失敗、ルールベースにフォールバック: %s", e)
         return _fallback_structurize(context)
 
 

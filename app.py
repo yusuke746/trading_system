@@ -161,6 +161,11 @@ def startup():
         name="EodCloseMonitor"
     ).start()
 
+    # MetaOptimizer: 毎週日曜UTC20:00に自動実行（バックグラウンド）
+    from meta_optimizer import MetaOptimizer
+    meta_opt = MetaOptimizer()
+    meta_opt.start_weekly_scheduler()
+
     logger.info("[5/5] Flask起動 port=%d", FLASK_PORT)
     logger.info("=" * 60)
     logger.info("  🚀 システム起動完了")
