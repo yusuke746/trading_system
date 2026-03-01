@@ -63,7 +63,7 @@ SYSTEM_CONFIG = {
     "news_block_before_min":    30,    # 発表前30分ブロック
     "news_block_after_min":     30,    # 発表後30分ブロック
     "news_target_currencies":   ["USD", "EUR"],
-    "news_min_importance":      2,     # MT5重要度2以上
+    "news_min_importance":      5,     # MT5重要度5以上
     "news_filter_fail_safe":    True,  # True=取得失敗時はエントリーブロック / False=許可（安全側をデフォルト）
     # ── ポジション管理 v2追加 ──────────────────
     "partial_close_ratio":      0.5,   # 第1TPで50%決済
