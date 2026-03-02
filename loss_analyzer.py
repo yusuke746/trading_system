@@ -1,14 +1,14 @@
 """
-loss_analyzer.py - 決済監視・負け分析・フィードバックループ
-AI Trading System v3.0
+loss_analyzer.py - 決済監視・フィードバックループ
+AI Trading System v3.5
 
-10秒ポーリングでポジション決済を検知し、SL被弾時に振り返りAIを実行する。
+10秒ポーリングでポジション決済を検知し、結果をDBに記録する。
 v3.0: scoring_history への結果記録（outcome/pnl）フィードバック機能を追加。
+※ SL被弾時の振り返りAI（OpenAI呼び出し）は v3.5 で廃止。
+   チャートによる手動分析に移行したため。
 """
 
-import json
 import logging
-import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -20,18 +20,13 @@ except ImportError:
     MT5_AVAILABLE = False
 
 from database import get_connection
-from logger_module import log_trade_result, update_trade_result_loss_analysis, log_event
+from logger_module import log_trade_result, log_event
 from config import SYSTEM_CONFIG
 
 logger = logging.getLogger(__name__)
 
 LOSS_ALERT_USD        = SYSTEM_CONFIG["loss_alert_usd"]
 POSITION_CHECK_SEC    = SYSTEM_CONFIG["position_check_interval_sec"]
-
-
-def _get_openai_client():
-    from openai import OpenAI
-    return OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
 
 
 class LossAnalyzer:
@@ -176,73 +171,8 @@ class LossAnalyzer:
             ticket, outcome, total_pnl, pips
         )
 
-        # SL被弾時のみ振り返りAI
-        if outcome == "sl_hit" and result_id:
-            self._run_loss_ai(result_id, info, ticket)
-
         # v3.0: scoring_history へのフィードバック
         self._update_scoring_history(ticket, outcome, total_pnl)
-
-    def _run_loss_ai(self, result_id: int, info: dict, ticket: int):
-        """振り返りAI（GPT-4o-mini）"""
-        # 元のAI判定コンテキストを取得
-        conn = get_connection()
-        row = conn.execute("""
-                SELECT ad.context_json, ad.reason
-                FROM executions e
-                JOIN ai_decisions ad ON ad.id = e.ai_decision_id
-                WHERE e.mt5_ticket = ?
-                LIMIT 1
-            """, (ticket,)).fetchone()
-
-        original_context = ""
-        original_reason  = ""
-        if row:
-            original_context = row["context_json"] or ""
-            original_reason  = row["reason"]         or ""
-
-        prompt = f"""あなたはFXトレードの振り返りアナリストです。
-以下のトレードがSLに被弾して負けました。
-なぜ負けたか、何を見落としていたかを日本語で分析してください。
-
-## エントリー情報
-{json.dumps(info, ensure_ascii=False, indent=2)}
-
-## AI判定時の根拠
-{original_reason}
-
-## AI判定時のコンテキスト（抜粋）
-{original_context[:2000] if original_context else '（取得不可）'}
-
-## 出力形式（JSON必須）
-{{
-  "loss_reason":    "相場の何が読めていなかったか（1〜2文）",
-  "missed_context": "見落としていたシグナル・情報 | null",
-  "prompt_hint":    "今後のSYSTEM_PROMPTに追加すべきルール（1文）"
-}}
-"""
-        try:
-            client = _get_openai_client()
-            resp   = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.2,
-                max_tokens=300,
-            )
-            analysis = json.loads(resp.choices[0].message.content)
-            update_trade_result_loss_analysis(
-                result_id,
-                analysis.get("loss_reason", ""),
-                analysis.get("missed_context", ""),
-                analysis.get("prompt_hint", ""),
-            )
-            log_event("loss_analysis_done",
-                      f"ticket={ticket} reason={analysis.get('loss_reason', '')[:80]}")
-            logger.info("🔍 振り返りAI完了: ticket=%d", ticket)
-        except Exception as e:
-            logger.error("振り返りAI失敗: ticket=%d %s", ticket, e)
-            log_event("loss_analysis_error", str(e), level="WARNING")
 
     def _update_scoring_history(self, ticket: int, outcome: str, pnl_usd: float):
         """

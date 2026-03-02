@@ -158,6 +158,44 @@ class TestDeleteOldRows(unittest.TestCase):
         self.assertEqual(_count(conn, "wait_history"), 0)
         conn.close()
 
+    def test_old_ai_decisions_deleted(self):
+        """ai_decisions: 366日以上前の行は削除される"""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT INTO ai_decisions(created_at, decision) VALUES(?, 'reject')",
+            (_dt_ago(366),)
+        )
+        conn.execute(
+            "INSERT INTO ai_decisions(created_at, decision) VALUES(?, 'approve')",
+            (_dt_ago(10),)
+        )
+        conn.commit()
+        conn.close()
+
+        self.maint.run()
+
+        conn = sqlite3.connect(self.db_path)
+        self.assertEqual(_count(conn, "ai_decisions"), 1,
+                         "366日以上前の行のみ削除され1件残るべき")
+        conn.close()
+
+    def test_recent_ai_decisions_row_not_deleted(self):
+        """ai_decisions: 365日以内の行は削除されない"""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT INTO ai_decisions(created_at, decision) VALUES(?, 'approve')",
+            (_dt_ago(364),)
+        )
+        conn.commit()
+        conn.close()
+
+        self.maint.run()
+
+        conn = sqlite3.connect(self.db_path)
+        self.assertEqual(_count(conn, "ai_decisions"), 1,
+                         "364日前の行は削除されないべき")
+        conn.close()
+
 
 class TestNullifyColumns(unittest.TestCase):
     """保持期間超の ai_decisions カラムが NULL 化されること"""

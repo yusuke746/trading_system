@@ -57,9 +57,9 @@ XMTrading / XAUUSD 専用 完全自動取引システム
 | `batch_processor.py` | **コーディネーター**。まとめた合図をパイプラインに渡す段取りをする |
 | `context_builder.py` | **情報収集係**。MT5から相場の状況データを集めてLLMに渡す |
 | `prompt_builder.py` | **翻訳係**。相場データをLLMが読めるプロンプトに変換する |
-| `llm_structurer.py` | **構造化係**。デフォルトはルールベースで高速・確定的に正規化JSON生成。`LLM_STRUCTURIZE=1` でLLM実験モードに切替可能 |
+| `data_structurer.py` | **構造化係**。デフォルトはルールベースで高速・確定的に正規化JSON生成。`LLM_STRUCTURIZE=1` でLLM実験モードに切替可能 |
 | `scoring_engine.py` | **審査員**。構造化データを受け取り、数値ルールで approve/wait/reject を判定する（config を毎回読み直して動的更新に対応） |
-| `ai_judge.py` | **パイプライン窓口**。llm_structurer → scoring_engine を呼び出し、旧形式で結果を返す |
+| `ai_judge.py` | **パイプライン窓口**。data_structurer → scoring_engine を呼び出し、旧形式で結果を返す |
 | `meta_optimizer.py` | **自動調整係**。毎週日曜UTC20:00にDBを分析し、安全ガード付きで SCORING_CONFIG を自動最適化する |
 | `executor.py` | **注文係**。approveが出たら実際にMT5で注文を出す |
 | `position_manager.py` | **管理係**。ポジションをずっと監視して利確・損切りを自動管理する |
@@ -131,7 +131,7 @@ XMTrading / XAUUSD 専用 完全自動取引システム
 | 項目 | 評価 | 詳細 |
 |---|---|---|
 | XAUUSD専用設計 | ★★★☆☆ | シンボルや計算式がゴールド専用にハードコードされており、他の通貨ペアへの転用が難しい。 |
-| AIプロンプトの固定化 | ★★★☆☆ | `llm_structurer.py` の構造化プロンプトが固定のため、市場環境の変化に対して手動更新が必要。 |
+| AIプロンプトの固定化 | ★★★☆☆ | `data_structurer.py` の構造化プロンプトが固定のため、市場環境の変化に対して手動更新が必要。 |
 | yfinanceデータの精度 | ★★★☆☆ | `download_ohlcv.py` で取得したデータはMT5の実際のスプレッドを含まない。 |
 
 ---
@@ -174,13 +174,13 @@ AI活用度        ████████████████████ 
 5. ✅ **ユニットテスト 146件 → 157件に拡充**（`test_meta_optimizer.py` 11件追加）
 
 **v3.0 で実施された変更：**
-1. ✅ **LLMの役割を「構造化専任」に変更**（`llm_structurer.py` 新規追加）
+1. ✅ **LLMの役割を「構造化専任」に変更**（`data_structurer.py` 新規追加）
 2. ✅ **数値ルールベーススコアリングエンジン実装**（`scoring_engine.py` 新規追加）
 3. ✅ **ai_judge.py を v3.0 パイプラインに対応**（後方互換性維持）
 4. ✅ **ライブ型バックテスター実装**（`backtester_live.py` 新規追加）
 5. ✅ **OHLCVデータ取得スクリプト追加**（`download_ohlcv.py` 新規追加）
 6. ✅ **SCORING_CONFIG・SESSION_SLTP_ADJUSTをconfigに集約**
-7. ✅ **ユニットテスト 77件 → 146件に拡充**（`test_ai_judge_v3.py`・`test_llm_structurer.py`・`test_scoring_engine.py` 追加）
+7. ✅ **ユニットテスト 77件 → 146件に拡充**（`test_ai_judge_v3.py`・`test_data_structurer.py`・`test_scoring_engine.py` 追加）
 
 ---
 
@@ -210,9 +210,9 @@ python -m pytest tests/ -v
 | `tests/test_news_filter.py` | TestNewsFilterFailSafe | 5件 | MT5未インストール時の fail_safe 動作 |
 | `tests/test_news_filter.py` | TestNewsFilterApiError | 2件 | カレンダーAPI取得失敗時の fail_safe 動作 |
 | `tests/test_news_filter.py` | TestNewsFilterReturnStructure | 1件 | 全ケースで fail_safe_triggered キー存在確認 |
-| `tests/test_llm_structurer.py` | TestFallbackStructurize | 16件 | ルールベースフォールバックの構造化ロジック検証 |
-| `tests/test_llm_structurer.py` | TestValidateAndFixSchema | 5件 | スキーマバリデーション・デフォルト補完 |
-| `tests/test_llm_structurer.py` | TestSafeFloat | 3件 | _safe_float() のエッジケース（None・文字列・NaN） |
+| `tests/test_data_structurer.py` | TestFallbackStructurize | 16件 | ルールベースフォールバックの構造化ロジック検証 |
+| `tests/test_data_structurer.py` | TestValidateAndFixSchema | 5件 | スキーマバリデーション・デフォルト補完 |
+| `tests/test_data_structurer.py` | TestSafeFloat | 3件 | _safe_float() のエッジケース（None・文字列・NaN） |
 | `tests/test_scoring_engine.py` | TestInstantReject | 3件 | 即rejectパターン（レンジ中央・データ欠損） |
 | `tests/test_scoring_engine.py` | TestRegimeScore | 3件 | レジーム別基礎点（trend/breakout/range） |
 | `tests/test_scoring_engine.py` | TestStructureScore | 5件 | ゾーン・FVG・流動性スイープの加点ルール |
@@ -237,7 +237,7 @@ python -m pytest tests/ -v
 ```
 生コンテキストデータ (context_builder.py)
         ↓
-llm_structurer.py (デフォルト: ルールベース / LLM_STRUCTURIZE=1 のときのみ LLM)
+data_structurer.py (デフォルト: ルールベース / LLM_STRUCTURIZE=1 のときのみ LLM)
         ↓ 正規化JSON
 scoring_engine.py (Python if/else ルール / config を毎回読み直して動的更新対応)
         ↓
@@ -512,7 +512,7 @@ trading_system/
 ├── batch_processor.py     # バッチ処理パイプライン
 ├── context_builder.py     # AIコンテキスト組み立て（MT5指標含む）
 ├── prompt_builder.py      # LLM向けプロンプト生成
-├── llm_structurer.py      # LLMによるデータ構造化（v3.0追加・v3.5でルールベースデフォルト化）
+├── data_structurer.py      # データ構造化（v3.0追加・v3.5でルールベースデフォルト化）
 ├── scoring_engine.py      # 数値ルールベーススコアリング（v3.0追加・v3.5で動的config読み込み対応）
 ├── ai_judge.py            # AI判定パイプライン窓口（v3.0: 後方互換維持）
 ├── meta_optimizer.py      # 週次自動パラメータ最適化エンジン（v3.5追加）
@@ -538,7 +538,7 @@ trading_system/
 │   ├── test_backtester.py        # backtester.py ユニットテスト（12件）
 │   ├── test_database.py          # database.py ユニットテスト（8件）
 │   ├── test_news_filter.py       # news_filter.py ユニットテスト（8件）
-│   ├── test_llm_structurer.py    # llm_structurer.py ユニットテスト（24件）（v3.0追加）
+│   ├── test_data_structurer.py    # data_structurer.py ユニットテスト（28件）（v3.0追加）
 │   ├── test_scoring_engine.py    # scoring_engine.py ユニットテスト（26件）（v3.0追加）
 │   ├── test_ai_judge_v3.py       # ai_judge.py v3.0 ユニットテスト（14件）（v3.0追加）
 │   └── test_meta_optimizer.py    # meta_optimizer.py ユニットテスト（11件）（v3.5追加）

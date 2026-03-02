@@ -26,7 +26,7 @@ def build_structuring_prompt(context: dict) -> list[dict]:
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
     """
-    from llm_structurer import STRUCTURING_SYSTEM_PROMPT
+    from data_structurer import STRUCTURING_SYSTEM_PROMPT
 
     user_content = json.dumps(context, ensure_ascii=False, default=str)
 

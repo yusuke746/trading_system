@@ -9,6 +9,7 @@ AI Trading System v3.5
   wait_history             : 180日超のレコードを削除
   ai_decisions.prompt_json : 90日超の行を NULL 化（大容量カラムの解放）
   ai_decisions.context_json: 180日超の行を NULL 化
+  ai_decisions             : 365日超のレコードを削除（行自体）
   executions / trade_results / param_history : 永久保存
 
 毎週日曜 UTC 21:00 に自動実行（MetaOptimizer の1時間後）。
@@ -37,6 +38,7 @@ RETENTION = {
     "delete_wait_history":     ("wait_history",     "created_at", 180, None),
     "null_prompt_json":        ("ai_decisions",     "created_at", 90,  ["prompt_json"]),
     "null_context_json":       ("ai_decisions",     "created_at", 180, ["context_json"]),
+    "delete_old_ai_decisions": ("ai_decisions",     "created_at", 365, None),  # 行自体を削除
 }
 
 
