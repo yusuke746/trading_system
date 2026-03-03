@@ -491,6 +491,14 @@ def _fallback_structurize(context: dict) -> dict:
 
     if rsi_value is None:
         fields_missing.append("rsi_value")
+        # 診断ログ: indicators_5m の実際の内容を記録する
+        _ind5m_keys = list(ind_5m.keys()) if ind_5m else []
+        logger.warning(
+            "rsi_value=None: ind_5m keys=%s, rsi14_raw=%r, error_key=%r",
+            _ind5m_keys,
+            ind_5m.get("rsi14"),
+            ind_5m.get("error"),
+        )
     if adx_value is None:
         fields_missing.append("adx_value")
         # adx_rising は adx_value が None の場合のみここで追加（下の else と重複させない）

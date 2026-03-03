@@ -106,10 +106,14 @@ def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
         loss = -delta.clip(upper=0)
         avg_gain = gain.ewm(alpha=1 / 14, adjust=False).mean()
         avg_loss = loss.ewm(alpha=1 / 14, adjust=False).mean()
-        # avg_loss=0（全バー上昇）のとき pd.NA にすると rsi14=NaN になるバグを修正。
-        # inf で割ると rs=inf → RSI=100 となり正しい値が得られる。
-        rs = avg_gain / avg_loss.replace(0, float('inf'))
-        df["rsi14"] = (100 - (100 / (1 + rs))).fillna(100.0)
+        # avg_loss=0（連続陽線）→ rs=inf → RSI=100 が正しい。
+        # .replace(0, pd.NA) を使うと rs=NaN になり rsi14=NaN になるバグがあったため
+        # np.errstate で警告を抑制しつつ直接割り算する方式に変更。
+        # avg_gain=0 かつ avg_loss=0（完全に横ばい）→ rs=nan → fillna(50.0) で中立値にする。
+        import numpy as np
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rs = avg_gain / avg_loss
+        df["rsi14"] = (100 - (100 / (1 + rs))).fillna(50.0)
 
         prev_close = df["close"].shift(1)
         tr = pd.concat(
