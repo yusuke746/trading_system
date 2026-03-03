@@ -131,6 +131,8 @@ def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
         result["close"] = round(float(df["close"].iloc[-1]), 3)
 
         # ADX14（Wilder平滑化）
+        # .replace(0, pd.NA) を使うと連続横ばい等で NaN が伝播し adx14=NaN になるバグを修正。
+        # np.errstate で 0 除算警告を抑制しつつ直接割り算し、NaN は 0 で埋める。
         prev_high  = df["high"].shift(1)
         prev_low   = df["low"].shift(1)
         plus_dm    = (df["high"] - prev_high).clip(lower=0)
@@ -141,10 +143,11 @@ def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
         atr_w      = tr.ewm(alpha=1/14, adjust=False).mean()
         plus_di_s  = plus_dm.ewm(alpha=1/14, adjust=False).mean()
         minus_di_s = minus_dm.ewm(alpha=1/14, adjust=False).mean()
-        plus_di    = 100 * plus_di_s  / atr_w.replace(0, pd.NA)
-        minus_di   = 100 * minus_di_s / atr_w.replace(0, pd.NA)
-        dx         = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, pd.NA)
-        df["adx14"]        = dx.ewm(alpha=1/14, adjust=False).mean()
+        with np.errstate(divide='ignore', invalid='ignore'):
+            plus_di  = (100 * plus_di_s  / atr_w).fillna(0.0)
+            minus_di = (100 * minus_di_s / atr_w).fillna(0.0)
+            dx       = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di)).fillna(0.0)
+        df["adx14"]        = dx.ewm(alpha=1/14, adjust=False).mean().fillna(0.0)
         result["adx14"]    = round(float(df["adx14"].iloc[-1]), 2)
         result["plus_di"]  = round(float(plus_di.iloc[-1]),     2)
         result["minus_di"] = round(float(minus_di.iloc[-1]),    2)

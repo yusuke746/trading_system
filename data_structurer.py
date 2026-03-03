@@ -501,7 +501,13 @@ def _fallback_structurize(context: dict) -> dict:
         )
     if adx_value is None:
         fields_missing.append("adx_value")
-        # adx_rising は adx_value が None の場合のみここで追加（下の else と重複させない）
+        _ind15m_keys = list(ind_15m.keys()) if ind_15m else []
+        logger.warning(
+            "adx_value=None: ind_15m keys=%s, adx14_raw=%r, error_key=%r",
+            _ind15m_keys,
+            ind_15m.get("adx14"),
+            ind_15m.get("error"),
+        )
 
     # ── レジーム判定 ────────────────────────────────────────
     adx_rising = None
