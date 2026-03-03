@@ -184,6 +184,20 @@ def get_mt5_context(symbol: str = SYMBOL) -> dict:
         "indicators_1h":  _get_mt5_indicators(symbol, TF_1H,  "1h",  [50, 200], extra=False),
     }
 
+    # 各時間足でエラーがあれば ERROR ログに出力（rsi_value 欠損の根本原因を即特定するため）
+    for tf_key in ("indicators_5m", "indicators_15m", "indicators_1h"):
+        err = ctx[tf_key].get("error")
+        if err:
+            logger.error(
+                "❌ MT5指標取得失敗 [%s/%s]: %s  ← rsi_value 欠損の原因はここ",
+                symbol, tf_key, err,
+            )
+        else:
+            logger.debug(
+                "✅ MT5指標取得OK [%s/%s]: keys=%s",
+                symbol, tf_key, list(ctx[tf_key].keys()),
+            )
+
     # 1時間足のprice_vs_sma200
     try:
         close_1h  = ctx["indicators_1h"].get("close", 0)
