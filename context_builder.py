@@ -65,26 +65,27 @@ def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
         return {"error": "MT5接続/シンボル選択失敗"}
     try:
         rates = None
-        for _attempt in range(3):
+        MIN_BARS = 30  # RSI14(14本) + SMA20(20本) を満たす最低ライン
+        for _attempt in range(5):
             rates = mt5.copy_rates_from_pos(symbol, tf_mt5, 0, 300)
-            if rates is not None and len(rates) >= 50:
+            if rates is not None and len(rates) >= MIN_BARS:
                 break
             _err = mt5.last_error()
             if rates is None:
-                logger.warning("copy_rates_from_pos(%s %s) attempt %d/3 → None: last_error=%s",
+                logger.warning("copy_rates_from_pos(%s %s) attempt %d/5 → None: last_error=%s",
                                symbol, tf_label, _attempt + 1, _err)
             else:
-                logger.warning("copy_rates_from_pos(%s %s) attempt %d/3 → バー数不足: %d本",
+                logger.warning("copy_rates_from_pos(%s %s) attempt %d/5 → バー数不足: %d本",
                                symbol, tf_label, _attempt + 1, len(rates))
-            if _attempt < 2:
-                time.sleep(0.5)
+            if _attempt < 4:
+                time.sleep(0.5 if _attempt < 2 else 1.0)
         if rates is None:
             err = mt5.last_error()
             logger.error("copy_rates_from_pos最終失敗(%s %s): last_error=%s", symbol, tf_label, err)
             return {"error": f"取得失敗({err})"}
-        if len(rates) < 50:
-            logger.warning("copy_rates_from_pos(%s %s) → バー数不足: %d本 (最低50本必要)",
-                           symbol, tf_label, len(rates))
+        if len(rates) < MIN_BARS:
+            logger.warning("copy_rates_from_pos(%s %s) → バー数不足: %d本 (最低%d本必要)",
+                           symbol, tf_label, len(rates), MIN_BARS)
             return {"error": f"データ不足({len(rates)}本)"}
         df = pd.DataFrame(rates)
         df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
@@ -105,8 +106,10 @@ def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
         loss = -delta.clip(upper=0)
         avg_gain = gain.ewm(alpha=1 / 14, adjust=False).mean()
         avg_loss = loss.ewm(alpha=1 / 14, adjust=False).mean()
-        rs = avg_gain / avg_loss.replace(0, pd.NA)
-        df["rsi14"] = 100 - (100 / (1 + rs))
+        # avg_loss=0（全バー上昇）のとき pd.NA にすると rsi14=NaN になるバグを修正。
+        # inf で割ると rs=inf → RSI=100 となり正しい値が得られる。
+        rs = avg_gain / avg_loss.replace(0, float('inf'))
+        df["rsi14"] = (100 - (100 / (1 + rs))).fillna(100.0)
 
         prev_close = df["close"].shift(1)
         tr = pd.concat(

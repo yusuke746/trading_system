@@ -117,8 +117,10 @@ def _check_instant_reject(structured_data: dict,
     fields_missing = data_completeness.get("fields_missing", [])
     critical_fields = {"rsi_value", "adx_value", "atr_expanding"}
     missing_critical = set(fields_missing) & critical_fields
-    if len(fields_missing) >= 3 or missing_critical:
-        reasons.append(f"重要データ欠損: {fields_missing}")
+    # >= 3 の全体カウントは廃止。above_sma20 等の非 critical フィールドが
+    # fields_missing に積まれても誤 reject しないよう、critical のみで判定する。
+    if missing_critical:
+        reasons.append(f"重要データ欠損: {sorted(missing_critical)}")
 
     # レンジ中央での順張りチェック
     regime = structured_data.get("regime", {})
