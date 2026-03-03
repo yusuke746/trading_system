@@ -108,7 +108,8 @@ def _get_atr15m(symbol: str) -> float:
     try:
         import pandas as pd
 
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 50)
+        # start_pos=1: 形成中（未確定）の現在バーを除外し、確定済みバーのみで ATR を計算
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 1, 50)
         if rates is None or len(rates) < 20:
             return 20.0
 

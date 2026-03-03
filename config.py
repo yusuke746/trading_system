@@ -19,7 +19,7 @@ SYSTEM_CONFIG = {
     "min_sl_pips":          8.0,   # dollar単位
     "pip_points":           10,    # GOLD: 1pip = 10point = $0.10
     # ATRボラティリティフィルター（異常値でエントリー禁止）
-    "atr_volatility_max":   30.0,  # 30ドル超: 指標・重要イベント直後等
+    "atr_volatility_max":   50.0,  # 50ドル超: 指標直後の異常スパイクのみ排除（旧30.0は5200水準基準で現価格帯に不適）
     "atr_volatility_min":   3.0,   # 3ドル未満: 値動きなし（スプレッド費用対効果悪化）
     # 追加リスク管理（risk_manager.py）
     # 1日の確定損失上限: 口座残高に対するパーセンテージ（負値）
