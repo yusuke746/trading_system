@@ -561,10 +561,12 @@ def _fallback_structurize(context: dict) -> dict:
     sweep_direction = None
     if has_sweep and sweep_list:
         raw_dir = sweep_list[0].get("direction", "")
+        # direction="sell" = 高値（buy-side）の流動性を狩って価格がsell方向に動いた → buy_side sweep
+        # direction="buy"  = 安値（sell-side）の流動性を狩って価格がbuy方向に動いた → sell_side sweep
         if raw_dir == "sell":
-            sweep_direction = "sell_side"
-        elif raw_dir == "buy":
             sweep_direction = "buy_side"
+        elif raw_dir == "buy":
+            sweep_direction = "sell_side"
 
     # ── モメンタム ──────────────────────────────────────
     rsi_zone = "neutral"

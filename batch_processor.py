@@ -159,8 +159,8 @@ class BatchProcessor:
             return None
 
         # ── 方向決定（liquidity_sweepの逆方向がエントリー方向）──
-        # sweep方向がsell → 売り側の流動性を狩った → buy方向に逆張り
-        # sweep方向がbuy  → 買い側の流動性を狩った → sell方向に逆張り
+        # sweep方向がsell → 買い側（buy-side）の流動性を狩って価格がsell方向へ動いた → sell方向に逆張り
+        # sweep方向がbuy  → 売り側（sell-side）の流動性を狩って価格がbuy方向へ動いた  → buy方向に逆張り
         sweep_direction = None
         if sweep_rows:
             sweep_direction = sweep_rows[0]["direction"]
@@ -171,9 +171,9 @@ class BatchProcessor:
                     break
 
         if sweep_direction == "sell":
-            entry_direction = "buy"
-        elif sweep_direction == "buy":
             entry_direction = "sell"
+        elif sweep_direction == "buy":
+            entry_direction = "buy"
         else:
             # 方向不明の場合はzone/FVGの方向を使用
             entry_direction = zone_rows[0]["direction"] if zone_rows else None

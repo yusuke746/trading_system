@@ -77,7 +77,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </div>
 
 <div class="card" style="margin-bottom:16px">
-  <h3>🤖 直近AI判定</h3>
+  <h3>📋 直近の判定</h3>
   <div style="overflow-x:auto">
   <table id="ai-table" style="min-width:700px">
     <thead><tr><th>時刻</th><th>Decision</th><th>EV</th><th>Conf</th><th>理由</th></tr></thead>
@@ -143,9 +143,10 @@ async function refresh() {
     const ab = document.getElementById('ai-body'); ab.innerHTML='';
     (d.recent_decisions || []).forEach(a => {
       const tr = ab.insertRow();
+      const evDisplay = (a.ev_score !== undefined && a.ev_score !== null && a.ev_score > -999) ? a.ev_score.toFixed(2) : '-';
       tr.innerHTML = `<td>${a.created_at?.substring(11,19)||''}</td>
         <td class="${a.decision}">${a.decision||''}</td>
-        <td>${a.ev_score?.toFixed(2)||''}</td><td>${a.confidence?.toFixed(2)||''}</td>
+        <td>${evDisplay}</td><td>${a.confidence?.toFixed(2)||''}</td>
         <td style="white-space:nowrap">${a.reason||''}</td>`;
     });
 

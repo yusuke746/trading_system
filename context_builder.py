@@ -64,10 +64,23 @@ def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
     if not _ensure_symbol_selected(symbol):
         return {"error": "MT5接続/シンボル選択失敗"}
     try:
-        rates = mt5.copy_rates_from_pos(symbol, tf_mt5, 0, 300)
+        rates = None
+        for _attempt in range(3):
+            rates = mt5.copy_rates_from_pos(symbol, tf_mt5, 0, 300)
+            if rates is not None and len(rates) >= 50:
+                break
+            _err = mt5.last_error()
+            if rates is None:
+                logger.warning("copy_rates_from_pos(%s %s) attempt %d/3 → None: last_error=%s",
+                               symbol, tf_label, _attempt + 1, _err)
+            else:
+                logger.warning("copy_rates_from_pos(%s %s) attempt %d/3 → バー数不足: %d本",
+                               symbol, tf_label, _attempt + 1, len(rates))
+            if _attempt < 2:
+                time.sleep(0.5)
         if rates is None:
             err = mt5.last_error()
-            logger.error("copy_rates_from_pos(%s %s) → None: last_error=%s", symbol, tf_label, err)
+            logger.error("copy_rates_from_pos最終失敗(%s %s): last_error=%s", symbol, tf_label, err)
             return {"error": f"取得失敗({err})"}
         if len(rates) < 50:
             logger.warning("copy_rates_from_pos(%s %s) → バー数不足: %d本 (最低50本必要)",
@@ -128,6 +141,11 @@ def _get_mt5_indicators(symbol: str, tf_mt5: int, tf_label: str,
         result["adx14"]    = round(float(df["adx14"].iloc[-1]), 2)
         result["plus_di"]  = round(float(plus_di.iloc[-1]),     2)
         result["minus_di"] = round(float(minus_di.iloc[-1]),    2)
+        # adx_rising: 直前足との比較で正確に判定（ADX > 20 という静的閾値では不正確）
+        if len(df) >= 2:
+            result["adx_rising"] = bool(df["adx14"].iloc[-1] > df["adx14"].iloc[-2])
+        else:
+            result["adx_rising"] = None
 
         if extra:
             result["ema20"] = round(float(df["ema20"].iloc[-1]), 3)

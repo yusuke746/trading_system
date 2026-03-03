@@ -341,14 +341,21 @@ def _is_direction_aligned(zone_direction: str | None, signal_direction: str) -> 
 
 
 def _is_sweep_aligned(sweep_direction: str | None, signal_direction: str) -> bool:
-    """スイープ方向がシグナル方向と逆張り（反転エントリー）として一致するかチェック"""
+    """スイープ方向がシグナル方向と一致するかチェック。
+
+    TradingViewアラートの direction フィールドの意味:
+      direction="sell" のスイープ = 高値（buy-side）の流動性を狩って価格がsell方向に動いた
+                                  → llm_structurer で "buy_side" に変換済み → sell エントリー
+      direction="buy"  のスイープ = 安値（sell-side）の流動性を狩って価格がbuy方向に動いた
+                                  → llm_structurer で "sell_side" に変換済み → buy エントリー
+    """
     if sweep_direction is None:
         return False
-    # sell_side sweep（売り側の流動性を狩った）→ 売り圧力が解消 → buy方向が正しい逆張り
-    # buy_side sweep（買い側の流動性を狩った）→ 買い圧力が解消 → sell方向が正しい逆張り
-    if sweep_direction == "sell_side" and signal_direction == "buy":
-        return True
+    # buy_side sweep（高値の流動性を狩った）→ 価格がsell方向に動いた → sell エントリー
     if sweep_direction == "buy_side" and signal_direction == "sell":
+        return True
+    # sell_side sweep（安値の流動性を狩った）→ 価格がbuy方向に動いた → buy エントリー
+    if sweep_direction == "sell_side" and signal_direction == "buy":
         return True
     return False
 

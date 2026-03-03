@@ -471,7 +471,12 @@ def _fallback_structurize(context: dict) -> dict:
     stat_ctx = context.get("statistical_context", {})
 
     fields_missing: list[str] = []
-    mt5_connected = "error" not in mt5_ctx
+    # mt5_ctx トップレベルのエラーに加えて、各時間足の sub-dict エラーも確認する
+    mt5_connected = (
+        "error" not in mt5_ctx
+        and "error" not in mt5_ctx.get("indicators_5m", {})
+        and "error" not in mt5_ctx.get("indicators_15m", {})
+    )
 
     # ── MT5指標の抽出 ──────────────────────────────────
     ind_5m = mt5_ctx.get("indicators_5m", {})
@@ -488,20 +493,28 @@ def _fallback_structurize(context: dict) -> dict:
         fields_missing.append("rsi_value")
     if adx_value is None:
         fields_missing.append("adx_value")
-        fields_missing.append("adx_rising")  # adx_value が None なら adx_rising も計算不能
+        # adx_rising は adx_value が None の場合のみここで追加（下の else と重複させない）
 
-    # ── レジーム判定 ────────────────────────────────────
+    # ── レジーム判定 ────────────────────────────────────────
     adx_rising = None
     if adx_value is not None:
-        # 簡易判定：ADX > 20 ならtrend可能性あり
-        adx_rising = adx_value > 20  # 正確なrising判定はLLMに任せたいがフォールバック
+        # context_builder で計算済みの adx_rising を使用（前足との差分比較）
+        adx_rising_raw = ind_15m.get("adx_rising")
+        if adx_rising_raw is not None:
+            adx_rising = bool(adx_rising_raw)
+        else:
+            # フォールバック: adx_rising が返ってこない旧バージョン対応
+            # ADX14の2本前と1本前を比較できないため None（fields_missing に追加）
+            fields_missing.append("adx_rising")
     else:
         fields_missing.append("adx_rising")
 
     atr_expanding = False
     squeeze_detected = False
-    if atr_15m is not None:
-        atr_percentile = stat_ctx.get("market_regime", {}).get("atr_percentile_15m", 50)
+    # atr_expanding は ind_15m ではなく statistical_context.market_regime.atr_percentile_15m を使う。
+    # これにより ind_15m がエラーでも、_get_atr_percentile（別経路）が成功していれば正しく判定できる。
+    atr_percentile = stat_ctx.get("market_regime", {}).get("atr_percentile_15m")
+    if atr_percentile is not None:
         atr_expanding = atr_percentile > 70
         squeeze_detected = atr_percentile < 20
     else:
