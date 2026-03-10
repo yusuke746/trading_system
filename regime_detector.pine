@@ -58,8 +58,8 @@ m15_atr_ma20 = ta.sma(m15_atr, 20)
 m15_adx_avg5 = ta.sma(m15_adx, 5)            // REVERSALのADX低下判定に使用
 
 // レンジ高値・安値（BREAKOUTの方向判定に使用）
-range_high = ta.highest(high, range_lookback)
-range_low  = ta.lowest(low,  range_lookback)
+range_high = ta.highest(high[1], range_lookback)
+range_low  = ta.lowest(low[1],  range_lookback)
 
 // 直近 range_lookback 本の ADX 平均（BREAKOUTの「直前がレンジだったか」判定）
 adx_avg_lookback = ta.sma(m15_adx, range_lookback)
