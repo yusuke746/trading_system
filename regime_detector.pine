@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("Regime Detector [1H/15M]", overlay=true, max_labels_count=500)
 
 // ─── Parameters ───────────────────────────────────────────────────────────────
@@ -126,31 +126,13 @@ direction := new_direction
 // レジームが変わったバーにのみ表示する（毎バー出すと max_labels_count を超える）
 if show_labels and regime_changed
     float  label_y = high + m15_atr * 0.5
-
-    string lbl_txt = regime == "TREND"    ? (direction == "buy" ? "T↑" : "T↓") :
-                     regime == "REVERSAL" ? (direction == "buy" ? "R↑" : "R↓") :
-                     regime == "BREAKOUT" ? (direction == "buy" ? "B↑" : "B↓") :
-                     "RNG"
-
-    color  lbl_col = regime == "TREND"    ? color.green :
-                     regime == "REVERSAL" ? color.red   :
-                     regime == "BREAKOUT" ? color.blue  :
-                     color.gray
-
-    label.new(bar_index, label_y, lbl_txt,
-              color      = lbl_col,
-              textcolor  = color.white,
-              style      = label.style_label_down,
-              size       = size.small)
+    string lbl_txt = regime == "TREND" ? (direction == "buy" ? "T↑" : "T↓") : regime == "REVERSAL" ? (direction == "buy" ? "R↑" : "R↓") : regime == "BREAKOUT" ? (direction == "buy" ? "B↑" : "B↓") : "RNG"
+    color  lbl_col = regime == "TREND" ? color.green : regime == "REVERSAL" ? color.red : regime == "BREAKOUT" ? color.blue : color.gray
+    label.new(bar_index, label_y, lbl_txt, color=lbl_col, textcolor=color.white, style=label.style_label_down, size=size.small)
 
 // ─── デバッグテーブル ───────────────────────────────────────────────────────────
 if show_debug
-    var table t = table.new(position.bottom_right, 2, 7,
-                            bgcolor      = color.new(color.black, 70),
-                            border_color = color.gray,
-                            border_width = 1,
-                            frame_color  = color.gray,
-                            frame_width  = 1)
+    var table t = table.new(position.bottom_right, 2, 7, bgcolor=color.new(color.black, 70), border_color=color.gray, border_width=1, frame_color=color.gray, frame_width=1)
 
     // ADX drop: 5本平均との差（正 = ADX低下中）
     float adx_drop_val = m15_adx_avg5 - m15_adx
