@@ -1,0 +1,240 @@
+//@version=6
+indicator("SMC Core [CHoCH/FVG/Zone]", overlay=true, max_labels_count=500, max_boxes_count=500, max_lines_count=500)
+
+// ─── Parameters ───────────────────────────────────────────────────────────────
+swing_length      = input.int(5,    "スイング検出バー数",      minval=2,  maxval=10)
+fvg_atr_min_mult  = input.float(0.3,"FVG最小サイズ(ATR倍率)",  minval=0.1, maxval=1.0, step=0.1)
+fvg_show          = input.bool(true, "FVG表示")
+zone_impulse_bars = input.int(10,   "インパルス判定バー数",     minval=3,  maxval=30)
+zone_impulse_mult = input.float(2.0,"インパルス判定ATR倍率",    minval=0.5, maxval=5.0, step=0.1)
+zone_show         = input.bool(true, "Zone表示")
+atr_period        = input.int(14,   "ATR期間",                 minval=5,  maxval=30)
+show_debug        = input.bool(true, "デバッグ情報表示")
+
+// ─── ATR（全体で共有） ─────────────────────────────────────────────────────────
+atr = ta.atr(atr_period)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ① CHoCH（Change of Character）
+// ═══════════════════════════════════════════════════════════════════════════════
+// ta.pivothigh/ta.pivotlow はswing_length本前に確定する（遅延は仕様通り）
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low  = ta.pivotlow(low,  swing_length, swing_length)
+
+var float last_swing_high = na
+var float last_swing_low  = na
+
+if not na(swing_high)
+    last_swing_high := swing_high
+if not na(swing_low)
+    last_swing_low := swing_low
+
+// close確定のみ：クロスした瞬間だけ検出（ずっと超えている間は発火しない）
+bullish_choch = not na(last_swing_high) and close > last_swing_high and close[1] <= last_swing_high
+bearish_choch = not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low
+
+if bullish_choch
+    label.new(bar_index, low - atr * 0.5, "CHoCH↑", color=color.green, textcolor=color.white, style=label.style_label_up, size=size.small)
+if bearish_choch
+    label.new(bar_index, high + atr * 0.5, "CHoCH↓", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ② FVG（Fair Value Gap）
+// ═══════════════════════════════════════════════════════════════════════════════
+fvg_min_size = atr * fvg_atr_min_mult
+
+var array<box>   bull_fvg_boxes = array.new<box>()
+var array<float> bull_fvg_mid   = array.new<float>()   // 50%ライン
+var array<box>   bear_fvg_boxes = array.new<box>()
+var array<float> bear_fvg_mid   = array.new<float>()   // 50%ライン
+
+// 強気FVG：candle[2].high < candle[0].low（2本前高値と現在安値の間にギャップ）
+bull_fvg_exists = high[2] < low[0] and (low[0] - high[2]) >= fvg_min_size
+// 弱気FVG：candle[2].low > candle[0].high（2本前安値と現在高値の間にギャップ）
+bear_fvg_exists = low[2] > high[0] and (low[2] - high[0]) >= fvg_min_size
+
+if fvg_show and bull_fvg_exists
+    b = box.new(bar_index - 2, low[0], bar_index + 50, high[2], border_color=color.new(color.green, 70), bgcolor=color.new(color.green, 80))
+    array.push(bull_fvg_boxes, b)
+    array.push(bull_fvg_mid,   (low[0] + high[2]) / 2.0)
+
+if fvg_show and bear_fvg_exists
+    b = box.new(bar_index - 2, low[2], bar_index + 50, high[0], border_color=color.new(color.red, 70), bgcolor=color.new(color.red, 80))
+    array.push(bear_fvg_boxes, b)
+    array.push(bear_fvg_mid,   (low[2] + high[0]) / 2.0)
+
+// 強気FVG：更新 or 無効化（close <= mid で50%以上埋まり → 削除）
+if array.size(bull_fvg_boxes) > 0
+    for i = array.size(bull_fvg_boxes) - 1 to 0 by -1
+        b   = array.get(bull_fvg_boxes, i)
+        mid = array.get(bull_fvg_mid,   i)
+        if close <= mid
+            box.delete(b)
+            array.remove(bull_fvg_boxes, i)
+            array.remove(bull_fvg_mid,   i)
+        else
+            box.set_right(b, bar_index + 50)
+
+// 弱気FVG：更新 or 無効化（close >= mid で50%以上埋まり → 削除）
+if array.size(bear_fvg_boxes) > 0
+    for i = array.size(bear_fvg_boxes) - 1 to 0 by -1
+        b   = array.get(bear_fvg_boxes, i)
+        mid = array.get(bear_fvg_mid,   i)
+        if close >= mid
+            box.delete(b)
+            array.remove(bear_fvg_boxes, i)
+            array.remove(bear_fvg_mid,   i)
+        else
+            box.set_right(b, bar_index + 50)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ③ Zone（需給ゾーン）
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Zone候補管理配列 ──────────────────────────────────────────────────────────
+// 需要ゾーン候補：陰線バーを保存し、その後のインパルスを監視
+var array<int>   dem_cand_bar  = array.new<int>()
+var array<float> dem_cand_low  = array.new<float>()
+var array<float> dem_cand_high = array.new<float>()
+var array<float> dem_cand_atr  = array.new<float>()   // 候補バー時点のATRを固定保存
+
+// 供給ゾーン候補：陽線バーを保存し、その後のインパルスを監視
+var array<int>   sup_cand_bar  = array.new<int>()
+var array<float> sup_cand_low  = array.new<float>()
+var array<float> sup_cand_high = array.new<float>()
+var array<float> sup_cand_atr  = array.new<float>()   // 候補バー時点のATRを固定保存
+
+// ─── 確定済みZone管理配列 ──────────────────────────────────────────────────────
+var array<box>   dem_boxes  = array.new<box>()
+var array<float> dem_lows   = array.new<float>()      // 無効化判定用（zone底）
+var array<label> dem_labels = array.new<label>()
+
+var array<box>   sup_boxes  = array.new<box>()
+var array<float> sup_highs  = array.new<float>()      // 無効化判定用（zone天井）
+var array<label> sup_labels = array.new<label>()
+
+// ─── 新規候補登録 ───────────────────────────────────────────────────────────────
+bool is_bearish = close < open
+bool is_bullish = close > open
+
+// 陰線 → 需要ゾーン候補として登録
+if is_bearish
+    array.push(dem_cand_bar,  bar_index)
+    array.push(dem_cand_low,  low)
+    array.push(dem_cand_high, high)
+    array.push(dem_cand_atr,  atr)
+
+// 陽線 → 供給ゾーン候補として登録
+if is_bullish
+    array.push(sup_cand_bar,  bar_index)
+    array.push(sup_cand_low,  low)
+    array.push(sup_cand_high, high)
+    array.push(sup_cand_atr,  atr)
+
+// ─── 需要ゾーン候補を処理 ──────────────────────────────────────────────────────
+// 候補バーのlowから現在highまでの上昇が zone_impulse_mult × 候補ATR 以上 → 確定
+if array.size(dem_cand_bar) > 0
+    for i = array.size(dem_cand_bar) - 1 to 0 by -1
+        cand_bi   = array.get(dem_cand_bar,  i)
+        cand_low  = array.get(dem_cand_low,  i)
+        cand_high = array.get(dem_cand_high, i)
+        cand_atr  = array.get(dem_cand_atr,  i)
+        if bar_index - cand_bi > zone_impulse_bars
+            // zone_impulse_bars以内にインパルスが来なかった → 候補破棄
+            array.remove(dem_cand_bar,  i)
+            array.remove(dem_cand_low,  i)
+            array.remove(dem_cand_high, i)
+            array.remove(dem_cand_atr,  i)
+        else if (high - cand_low) >= cand_atr * zone_impulse_mult
+            // 上昇インパルス確認 → 需要ゾーン確定
+            if zone_show
+                b   = box.new(cand_bi, cand_high, bar_index, cand_low, border_color=color.new(color.blue, 70), bgcolor=color.new(color.blue, 85))
+                lbl = label.new(cand_bi, cand_low, "D", color=color.new(color.blue, 50), textcolor=color.white, style=label.style_label_up, size=size.small)
+                array.push(dem_boxes,  b)
+                array.push(dem_lows,   cand_low)
+                array.push(dem_labels, lbl)
+            array.remove(dem_cand_bar,  i)
+            array.remove(dem_cand_low,  i)
+            array.remove(dem_cand_high, i)
+            array.remove(dem_cand_atr,  i)
+
+// ─── 供給ゾーン候補を処理 ──────────────────────────────────────────────────────
+// 候補バーのhighから現在lowまでの下落が zone_impulse_mult × 候補ATR 以上 → 確定
+if array.size(sup_cand_bar) > 0
+    for i = array.size(sup_cand_bar) - 1 to 0 by -1
+        cand_bi   = array.get(sup_cand_bar,  i)
+        cand_low  = array.get(sup_cand_low,  i)
+        cand_high = array.get(sup_cand_high, i)
+        cand_atr  = array.get(sup_cand_atr,  i)
+        if bar_index - cand_bi > zone_impulse_bars
+            // 候補破棄
+            array.remove(sup_cand_bar,  i)
+            array.remove(sup_cand_low,  i)
+            array.remove(sup_cand_high, i)
+            array.remove(sup_cand_atr,  i)
+        else if (cand_high - low) >= cand_atr * zone_impulse_mult
+            // 下落インパルス確認 → 供給ゾーン確定
+            if zone_show
+                b   = box.new(cand_bi, cand_high, bar_index, cand_low, border_color=color.new(color.orange, 70), bgcolor=color.new(color.orange, 85))
+                lbl = label.new(cand_bi, cand_high, "S", color=color.new(color.orange, 50), textcolor=color.white, style=label.style_label_down, size=size.small)
+                array.push(sup_boxes,  b)
+                array.push(sup_highs,  cand_high)
+                array.push(sup_labels, lbl)
+            array.remove(sup_cand_bar,  i)
+            array.remove(sup_cand_low,  i)
+            array.remove(sup_cand_high, i)
+            array.remove(sup_cand_atr,  i)
+
+// ─── 確定済み需要ゾーン：右端延長 & 無効化チェック ────────────────────────────
+// 無効化：zone底をclose確定で下抜けたとき（ヒゲ抜けでは無効化しない）
+if array.size(dem_boxes) > 0
+    for i = array.size(dem_boxes) - 1 to 0 by -1
+        b        = array.get(dem_boxes,  i)
+        zone_low = array.get(dem_lows,   i)
+        lbl      = array.get(dem_labels, i)
+        if close < zone_low
+            box.delete(b)
+            label.delete(lbl)
+            array.remove(dem_boxes,  i)
+            array.remove(dem_lows,   i)
+            array.remove(dem_labels, i)
+        else
+            box.set_right(b, bar_index)
+
+// ─── 確定済み供給ゾーン：右端延長 & 無効化チェック ────────────────────────────
+// 無効化：zone天井をclose確定で上抜けたとき（ヒゲ抜けでは無効化しない）
+if array.size(sup_boxes) > 0
+    for i = array.size(sup_boxes) - 1 to 0 by -1
+        b         = array.get(sup_boxes,  i)
+        zone_high = array.get(sup_highs,  i)
+        lbl       = array.get(sup_labels, i)
+        if close > zone_high
+            box.delete(b)
+            label.delete(lbl)
+            array.remove(sup_boxes,  i)
+            array.remove(sup_highs,  i)
+            array.remove(sup_labels, i)
+        else
+            box.set_right(b, bar_index)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// デバッグテーブル
+// ═══════════════════════════════════════════════════════════════════════════════
+if show_debug
+    var table t = table.new(position.bottom_right, 2, 7, bgcolor=color.new(color.black, 70), border_color=color.gray, border_width=1, frame_color=color.gray, frame_width=1)
+    int active_fvgs  = array.size(bull_fvg_boxes) + array.size(bear_fvg_boxes)
+    int active_zones = array.size(dem_boxes)       + array.size(sup_boxes)
+    table.cell(t, 0, 0, "Last Swing High", text_color=color.white, bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 0, na(last_swing_high) ? "n/a" : str.tostring(last_swing_high, "#.##"), text_color=color.yellow, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 1, "Last Swing Low",  text_color=color.white, bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 1, na(last_swing_low)  ? "n/a" : str.tostring(last_swing_low,  "#.##"), text_color=color.yellow, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 2, "Bull CHoCH",      text_color=color.white, bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 2, str.tostring(bullish_choch), text_color=bullish_choch ? color.lime : color.gray, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 3, "Bear CHoCH",      text_color=color.white, bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 3, str.tostring(bearish_choch), text_color=bearish_choch ? color.red  : color.gray, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 4, "ATR",             text_color=color.white, bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 4, str.tostring(atr, "#.##"), text_color=color.yellow, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 5, "Active FVGs",     text_color=color.white, bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 5, str.tostring(active_fvgs),  text_color=color.yellow, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 6, "Active Zones",    text_color=color.white, bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 6, str.tostring(active_zones), text_color=color.yellow, bgcolor=color.new(color.black, 70))
