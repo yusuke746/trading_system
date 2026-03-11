@@ -35,8 +35,10 @@ bearish_choch = not na(last_swing_low)  and close < last_swing_low  and close[1]
 
 if bullish_choch
     label.new(bar_index, low - atr * 0.5, "CHoCH↑", color=color.green, textcolor=color.white, style=label.style_label_up, size=size.small)
+    last_swing_high := na  // 次のスイング高値確定まで再発火しない
 if bearish_choch
     label.new(bar_index, high + atr * 0.5, "CHoCH↓", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.small)
+    last_swing_low := na   // 次のスイング安値確定まで再発火しない
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ② FVG（Fair Value Gap）
@@ -93,18 +95,17 @@ while _bbi >= 0
 // ③ Zone（需給ゾーン）
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ─── Zone候補管理配列 ──────────────────────────────────────────────────────────
-// 需要ゾーン候補：陰線バーを保存し、その後のインパルスを監視
-var array<int>   dem_cand_bar  = array.new<int>()
-var array<float> dem_cand_low  = array.new<float>()
-var array<float> dem_cand_high = array.new<float>()
-var array<float> dem_cand_atr  = array.new<float>()   // 候補バー時点のATRを固定保存
+// ─── Zone候補（単一変数で最新1本のみ保持） ────────────────────────────────────
+// 陰線/陽線が来るたびに上書きされるため、常に最新の候補1本のみが有効
+var int   dem_cand_bar  = na
+var float dem_cand_low  = na
+var float dem_cand_high = na
+var float dem_cand_atr  = na   // 候補バー時点のATRを固定保存
 
-// 供給ゾーン候補：陽線バーを保存し、その後のインパルスを監視
-var array<int>   sup_cand_bar  = array.new<int>()
-var array<float> sup_cand_low  = array.new<float>()
-var array<float> sup_cand_high = array.new<float>()
-var array<float> sup_cand_atr  = array.new<float>()   // 候補バー時点のATRを固定保存
+var int   sup_cand_bar  = na
+var float sup_cand_low  = na
+var float sup_cand_high = na
+var float sup_cand_atr  = na   // 候補バー時点のATRを固定保存
 
 // ─── 確定済みZone管理配列 ──────────────────────────────────────────────────────
 var array<box>   dem_boxes  = array.new<box>()
@@ -115,79 +116,56 @@ var array<box>   sup_boxes  = array.new<box>()
 var array<float> sup_highs  = array.new<float>()      // 無効化判定用（zone天井）
 var array<label> sup_labels = array.new<label>()
 
-// ─── 新規候補登録 ───────────────────────────────────────────────────────────────
 bool is_bearish = close < open
 bool is_bullish = close > open
 
-// 陰線 → 需要ゾーン候補として登録
+// 陰線 → 需要ゾーン候補を上書き（前の候補は自動的に破棄される）
 if is_bearish
-    array.push(dem_cand_bar,  bar_index)
-    array.push(dem_cand_low,  low)
-    array.push(dem_cand_high, high)
-    array.push(dem_cand_atr,  atr)
+    dem_cand_bar  := bar_index
+    dem_cand_low  := low
+    dem_cand_high := high
+    dem_cand_atr  := atr
 
-// 陽線 → 供給ゾーン候補として登録
+// 陽線 → 供給ゾーン候補を上書き（前の候補は自動的に破棄される）
 if is_bullish
-    array.push(sup_cand_bar,  bar_index)
-    array.push(sup_cand_low,  low)
-    array.push(sup_cand_high, high)
-    array.push(sup_cand_atr,  atr)
+    sup_cand_bar  := bar_index
+    sup_cand_low  := low
+    sup_cand_high := high
+    sup_cand_atr  := atr
 
 // ─── 需要ゾーン候補を処理 ──────────────────────────────────────────────────────
 // 候補バーのlowから現在highまでの上昇が zone_impulse_mult × 候補ATR 以上 → 確定
-int _di = array.size(dem_cand_bar) - 1
-while _di >= 0
-    cand_bi   = array.get(dem_cand_bar,  _di)
-    cand_low  = array.get(dem_cand_low,  _di)
-    cand_high = array.get(dem_cand_high, _di)
-    cand_atr  = array.get(dem_cand_atr,  _di)
-    if bar_index - cand_bi > zone_impulse_bars
-        // zone_impulse_bars以内にインパルスが来なかった → 候補破棄
-        array.remove(dem_cand_bar,  _di)
-        array.remove(dem_cand_low,  _di)
-        array.remove(dem_cand_high, _di)
-        array.remove(dem_cand_atr,  _di)
-    else if (high - cand_low) >= cand_atr * zone_impulse_mult
+if not na(dem_cand_bar)
+    if bar_index - dem_cand_bar > zone_impulse_bars
+        // ①タイムアウト → 候補破棄
+        dem_cand_bar := na
+    else if (high - dem_cand_low) >= dem_cand_atr * zone_impulse_mult
         // 上昇インパルス確認 → 需要ゾーン確定
         if zone_show
-            b   = box.new(cand_bi, cand_high, bar_index, cand_low, border_color=color.new(color.blue, 70), bgcolor=color.new(color.blue, 85))
-            lbl = label.new(cand_bi, cand_low, "D", color=color.new(color.blue, 50), textcolor=color.white, style=label.style_label_up, size=size.small)
+            b   = box.new(dem_cand_bar, dem_cand_high, bar_index, dem_cand_low, border_color=color.new(color.blue, 70), bgcolor=color.new(color.blue, 85))
+            lbl = label.new(dem_cand_bar, dem_cand_low, "D", color=color.new(color.blue, 50), textcolor=color.white, style=label.style_label_up, size=size.small)
             array.push(dem_boxes,  b)
-            array.push(dem_lows,   cand_low)
+            array.push(dem_lows,   dem_cand_low)
             array.push(dem_labels, lbl)
-        array.remove(dem_cand_bar,  _di)
-        array.remove(dem_cand_low,  _di)
-        array.remove(dem_cand_high, _di)
-        array.remove(dem_cand_atr,  _di)
-    _di -= 1
+        // ②確定後 → 候補リセット（重複確定を防ぐ）
+        dem_cand_bar := na
 
 // ─── 供給ゾーン候補を処理 ──────────────────────────────────────────────────────
 // 候補バーのhighから現在lowまでの下落が zone_impulse_mult × 候補ATR 以上 → 確定
-int _si = array.size(sup_cand_bar) - 1
-while _si >= 0
-    cand_bi   = array.get(sup_cand_bar,  _si)
-    cand_low  = array.get(sup_cand_low,  _si)
-    cand_high = array.get(sup_cand_high, _si)
-    cand_atr  = array.get(sup_cand_atr,  _si)
-    if bar_index - cand_bi > zone_impulse_bars
-        // 候補破棄
-        array.remove(sup_cand_bar,  _si)
-        array.remove(sup_cand_low,  _si)
-        array.remove(sup_cand_high, _si)
-        array.remove(sup_cand_atr,  _si)
-    else if (cand_high - low) >= cand_atr * zone_impulse_mult
+if not na(sup_cand_bar)
+    if bar_index - sup_cand_bar > zone_impulse_bars
+        // ①タイムアウト → 候補破棄
+        sup_cand_bar := na
+    else if (sup_cand_high - low) >= sup_cand_atr * zone_impulse_mult
         // 下落インパルス確認 → 供給ゾーン確定
         if zone_show
-            b   = box.new(cand_bi, cand_high, bar_index, cand_low, border_color=color.new(color.orange, 70), bgcolor=color.new(color.orange, 85))
-            lbl = label.new(cand_bi, cand_high, "S", color=color.new(color.orange, 50), textcolor=color.white, style=label.style_label_down, size=size.small)
+            b   = box.new(sup_cand_bar, sup_cand_high, bar_index, sup_cand_low, border_color=color.new(color.orange, 70), bgcolor=color.new(color.orange, 85))
+            lbl = label.new(sup_cand_bar, sup_cand_high, "S", color=color.new(color.orange, 50), textcolor=color.white, style=label.style_label_down, size=size.small)
             array.push(sup_boxes,  b)
-            array.push(sup_highs,  cand_high)
+            array.push(sup_highs,  sup_cand_high)
             array.push(sup_labels, lbl)
-        array.remove(sup_cand_bar,  _si)
-        array.remove(sup_cand_low,  _si)
-        array.remove(sup_cand_high, _si)
-        array.remove(sup_cand_atr,  _si)
-    _si -= 1
+        // ②確定後 → 候補リセット（重複確定を防ぐ）
+        sup_cand_bar := na
 
 // ─── 確定済み需要ゾーン：右端延長 & 無効化チェック ────────────────────────────
 // 無効化：zone底をclose確定で下抜けたとき（ヒゲ抜けでは無効化しない）
