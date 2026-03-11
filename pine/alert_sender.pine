@@ -83,18 +83,18 @@ trend_align = (h1_direction == "bull" and close > m15_ema) or
 is_trend    = m15_adx >= adx_trend_min and h1_trend_valid and trend_align
 
 string regime = is_reversal ? "REVERSAL" :
-                is_breakout  ? "BREAKOUT" :
-                is_trend     ? "TREND"    : "RANGE"
+     is_breakout  ? "BREAKOUT" :
+     is_trend     ? "TREND"    : "RANGE"
 
 string rev_direction   = h1_direction == "bull" ? "sell" : "buy"
 string bo_direction    = close > range_high ? "buy" :
-                         close < range_low  ? "sell" : "none"
+     close < range_low  ? "sell" : "none"
 string trend_direction = h1_direction == "bull" and close > m15_ema ? "buy" :
-                         h1_direction == "bear" and close < m15_ema ? "sell" : "none"
+     h1_direction == "bear" and close < m15_ema ? "sell" : "none"
 
 string direction = regime == "REVERSAL" ? rev_direction   :
-                   regime == "BREAKOUT"  ? bo_direction    :
-                   regime == "TREND"     ? trend_direction : "none"
+     regime == "BREAKOUT"  ? bo_direction    :
+     regime == "TREND"     ? trend_direction : "none"
 
 // ─── CHoCH ────────────────────────────────────────────────────────────────────
 swing_high = ta.pivothigh(high, swing_length, swing_length)
