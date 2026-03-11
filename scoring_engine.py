@@ -1,33 +1,30 @@
 """
 scoring_engine.py - 数値ルールベースのスコアリングエンジン
-AI Trading System v3.0
+AI Trading System v4.0（マルチレジーム対応）
 
-llm_structurer.py の出力を受け取り、純粋な数値ルールで approve/reject/wait を判定する。
-全ての判定ロジックは Python の if/else で書く。LLM は一切関与しない。
+Pine Script アラート JSON を直接受け取り、純粋な数値ルールで
+approve / reject / wait を判定する。LLM は一切関与しない。
 全ての閾値は config.py の SCORING_CONFIG で管理し、バックテストで最適化可能。
 """
 
 import logging
-from config import SCORING_CONFIG
 
 logger = logging.getLogger(__name__)
 
-def calculate_score(structured_data: dict, signal_direction: str,
-                    q_trend_available: bool = True) -> dict:
+
+def calculate_score(alert: dict) -> dict:
     """
-    構造化データからスコアを計算し、判定結果を返す。
+    Pine Script アラート JSON を受け取り、スコアリング結果を返す。
 
     Args:
-        structured_data: llm_structurer.py の出力（正規化された構造データ）
-        signal_direction: エントリー方向 ("buy" / "sell")
+        alert: Pine Script が送信するフラット JSON dict
 
     Returns:
         {
-            "decision": "approve" | "reject" | "wait",
-            "score": float,
+            "decision":        "approve" | "wait" | "reject",
+            "score":           float,
             "score_breakdown": {条件名: 加点値, ...},
-            "reject_reasons": [str],
-            "wait_condition": str | None,
+            "reject_reasons":  [str],
         }
     """
     # config を毎回読み直す（meta_optimizer による動的更新に対応）
@@ -35,354 +32,170 @@ def calculate_score(structured_data: dict, signal_direction: str,
     approve_threshold = _cfg["approve_threshold"]
     wait_threshold    = _cfg["wait_threshold"]
 
-    # 即rejectチェック
-    reject_reasons = _check_instant_reject(structured_data, signal_direction,
-                                           q_trend_available)
+    # ── 必須ゲートチェック ──────────────────────────────────────
+    # ゲートをひとつでも通過しなければ即 reject（スコア計算スキップ）
+    reject_reasons = _check_gates(alert)
     if reject_reasons:
+        logger.info(
+            "🚫 ゲート不通過 reject: reasons=%s", reject_reasons
+        )
         return {
-            "decision": "reject",
-            "score": -999.0,
-            "score_breakdown": {"instant_reject": -999},
-            "reject_reasons": reject_reasons,
-            "wait_condition": None,
+            "decision":        "reject",
+            "score":           -999.0,
+            "score_breakdown": {"gate_reject": -999},
+            "reject_reasons":  reject_reasons,
         }
 
-    total_score = 0.0
+    # ── 共通スコアテーブル評価 ────────────────────────────────
     breakdown: dict[str, float] = {}
+    _apply_choch_score(alert, _cfg, breakdown)
+    _apply_rsi_divergence(alert, _cfg, breakdown)
+    _apply_fvg_zone_overlap(alert, _cfg, breakdown)
+    _apply_adx_score(alert, _cfg, breakdown)
+    _apply_h1_direction_score(alert, _cfg, breakdown)
+    _apply_session_score(alert, _cfg, breakdown)
+    _apply_atr_ratio_score(alert, _cfg, breakdown)
+    _apply_news_penalty(alert, _cfg, breakdown)
 
-    # レジームスコア
-    regime = structured_data.get("regime", {})
-    regime_score, regime_detail = _calculate_regime_score(regime, signal_direction)
-    total_score += regime_score
-    if regime_detail:
-        breakdown[regime_detail] = regime_score
+    total_score = round(sum(breakdown.values()), 4)
 
-    # 構造スコア
-    zone_interaction = structured_data.get("zone_interaction", {})
-    # momentum を先に取得して trend_aligned を structure_score に渡す
-    momentum = structured_data.get("momentum", {})
-    trend_aligned = momentum.get("trend_aligned", True)
-    structure_score, structure_breakdown = _calculate_structure_score(
-        zone_interaction,
-        signal_direction,
-        trend_aligned=trend_aligned,
-    )
-    total_score += structure_score
-    breakdown.update(structure_breakdown)
-
-    # モメンタムスコア（momentumはすでに取得済みのものを使う）
-    has_sweep = zone_interaction.get("liquidity_sweep", False)
-    momentum_score, momentum_breakdown = _calculate_momentum_score(
-        momentum, signal_direction, has_sweep=has_sweep
-    )
-    total_score += momentum_score
-    breakdown.update(momentum_breakdown)
-
-    # シグナル品質スコア
-    signal_quality = structured_data.get("signal_quality", {})
-    quality_score, quality_breakdown = _calculate_signal_quality_score(signal_quality)
-    total_score += quality_score
-    breakdown.update(quality_breakdown)
-
-    total_score = round(total_score, 4)
-
-    # 判定
+    # ── 判定 ────────────────────────────────────────────────
     if total_score >= approve_threshold:
-        decision = "approve"
-        wait_condition = None
+        decision       = "approve"
+        reject_reasons = []
     elif total_score >= wait_threshold:
-        decision = "wait"
-        wait_condition = _determine_wait_condition(structured_data, breakdown)
+        decision       = "wait"
+        reject_reasons = []
     else:
-        decision = "reject"
-        wait_condition = None
+        decision       = "reject"
+        reject_reasons = ["スコア不足（閾値未達）"]
+
+    logger.info(
+        "🧮 スコアリング: decision=%s score=%.4f breakdown=%s",
+        decision, total_score, breakdown,
+    )
 
     return {
-        "decision": decision,
-        "score": total_score,
+        "decision":        decision,
+        "score":           total_score,
         "score_breakdown": breakdown,
-        "reject_reasons": [] if decision != "reject" else _build_reject_reasons(breakdown),
-        "wait_condition": wait_condition,
+        "reject_reasons":  reject_reasons,
     }
 
 
-def _check_instant_reject(structured_data: dict,
-                           signal_direction: str,
-                           q_trend_available: bool = True) -> list[str]:
-    """即rejectパターンのチェック。該当する理由のリストを返す。"""
-    reasons: list[str] = []
+# ── 必須ゲートチェック ──────────────────────────────────────────
 
-    # データ不足チェック
-    data_completeness = structured_data.get("data_completeness", {})
-    fields_missing = data_completeness.get("fields_missing", [])
-    critical_fields = {"rsi_value", "adx_value", "atr_expanding"}
-    missing_critical = set(fields_missing) & critical_fields
-    # >= 3 の全体カウントは廃止。above_sma20 等の非 critical フィールドが
-    # fields_missing に積まれても誤 reject しないよう、critical のみで判定する。
-    if missing_critical:
-        reasons.append(f"重要データ欠損: {sorted(missing_critical)}")
-
-    # レンジ中央での順張りチェック
-    regime = structured_data.get("regime", {})
-    price_structure = structured_data.get("price_structure", {})
-
-    if regime.get("classification") == "range":
-        sma20_distance = price_structure.get("sma20_distance_pct")
-        if sma20_distance is not None and abs(sma20_distance) <= 0.3:
-            # レンジ中央での順張り
-            zone_interaction = structured_data.get("zone_interaction", {})
-            zone_touch = zone_interaction.get("zone_touch", False)
-            fvg_touch = zone_interaction.get("fvg_touch", False)
-            if not zone_touch and not fvg_touch:
-                reasons.append("レンジ中央での順張り（SMA20乖離±0.3%以内、ゾーン/FVGタッチなし）")
-
-    # Gate 2: Q-trend不一致 かつ bar_close未確認 → 即reject
-    # q_trend_availableがFalseの場合（Q-trendデータ未受信）はスキップする
-    if q_trend_available:
-        momentum = structured_data.get("momentum", {})
-        signal_quality = structured_data.get("signal_quality", {})
-        trend_aligned = momentum.get("trend_aligned", True)
-        bar_close_confirmed = signal_quality.get("bar_close_confirmed", True)
-        if not trend_aligned and not bar_close_confirmed:
-            reasons.append("Gate2: Q-trend不一致かつbar_close未確認")
-
-    return reasons
-
-
-def _calculate_regime_score(regime: dict, signal_direction: str) -> tuple[float, str]:
-    """レジーム別の基礎スコア計算"""
-    classification = regime.get("classification", "range")
-
-    if classification == "trend":
-        return SCORING_CONFIG["regime_trend_base"], "regime_trend_base"
-    elif classification == "breakout":
-        return SCORING_CONFIG["regime_breakout_base"], "regime_breakout_base"
-    elif classification == "range":
-        return SCORING_CONFIG["regime_range_base"], "regime_range_base"
-    else:
-        return 0.0, ""
-
-
-def _calculate_structure_score(
-    zone_interaction: dict,
-    signal_direction: str,
-    trend_aligned: bool = True,
-) -> tuple[float, dict]:
-    """ゾーン・構造要素のスコア計算"""
-    score = 0.0
-    breakdown: dict[str, float] = {}
-
-    zone_touch = zone_interaction.get("zone_touch", False)
-    zone_direction = zone_interaction.get("zone_direction")
-    fvg_touch = zone_interaction.get("fvg_touch", False)
-    fvg_direction = zone_interaction.get("fvg_direction")
-    liquidity_sweep = zone_interaction.get("liquidity_sweep", False)
-    sweep_direction = zone_interaction.get("sweep_direction")
-
-    # ゾーンタッチ（方向一致）: Q-trend整合性で重みを分岐
-    if zone_touch and _is_direction_aligned(zone_direction, signal_direction):
-        if trend_aligned:
-            val = SCORING_CONFIG.get("zone_touch_aligned_with_trend",
-                                     SCORING_CONFIG["zone_touch_aligned"])
-            breakdown["zone_touch_aligned_with_trend"] = val
-        else:
-            val = SCORING_CONFIG.get("zone_touch_counter_trend", 0.08)
-            breakdown["zone_touch_counter_trend"] = val
-        score += val
-
-    # FVGタッチ（方向一致）: Q-trend整合性で重みを分岐
-    if fvg_touch and _is_direction_aligned(fvg_direction, signal_direction):
-        if trend_aligned:
-            val = SCORING_CONFIG.get("fvg_touch_aligned_with_trend",
-                                     SCORING_CONFIG["fvg_touch_aligned"])
-            breakdown["fvg_touch_aligned_with_trend"] = val
-        else:
-            val = SCORING_CONFIG.get("fvg_touch_counter_trend", 0.06)
-            breakdown["fvg_touch_counter_trend"] = val
-        score += val
-
-    # リクイディティスイープ
-    if liquidity_sweep and _is_sweep_aligned(sweep_direction, signal_direction):
-        val = SCORING_CONFIG["liquidity_sweep"]
-        score += val
-        breakdown["liquidity_sweep"] = val
-
-        # スイープ + ゾーンタッチのコンボボーナス
-        if zone_touch and _is_direction_aligned(zone_direction, signal_direction):
-            val = SCORING_CONFIG["sweep_plus_zone"]
-            score += val
-            breakdown["sweep_plus_zone"] = val
-
-    return score, breakdown
-
-
-def _calculate_momentum_score(
-    momentum: dict, signal_direction: str, has_sweep: bool = False
-) -> tuple[float, dict]:
-    """モメンタムスコア計算"""
-    score = 0.0
-    breakdown: dict[str, float] = {}
-
-    # Q-trendとシグナル方向の一致
-    trend_aligned = momentum.get("trend_aligned", False)
-    if trend_aligned:
-        val = SCORING_CONFIG["trend_aligned"]
-        score += val
-        breakdown["trend_aligned"] = val
-
-    # RSI確認
-    rsi_value = momentum.get("rsi_value")
-    rsi_zone = momentum.get("rsi_zone", "neutral")
-    if rsi_value is not None:
-        if signal_direction == "buy" and rsi_zone == "oversold":
-            val = SCORING_CONFIG["rsi_confirmation"]
-            score += val
-            breakdown["rsi_confirmation"] = val
-        elif signal_direction == "sell" and rsi_zone == "overbought":
-            val = SCORING_CONFIG["rsi_confirmation"]
-            score += val
-            breakdown["rsi_confirmation"] = val
-        elif signal_direction == "buy" and rsi_zone == "overbought":
-            val = SCORING_CONFIG["rsi_divergence"]
-            score += val
-            breakdown["rsi_divergence"] = val
-        elif signal_direction == "sell" and rsi_zone == "oversold":
-            val = SCORING_CONFIG["rsi_divergence"]
-            score += val
-            breakdown["rsi_divergence"] = val
-
-    # トレンド逆行チェック（スイープなし）
-    # trend_alignedが明示的にFalseかつスイープによる逆張り根拠がない場合のみ減点
-    if not trend_aligned and momentum.get("trend_aligned") is not None and not has_sweep:
-        val = SCORING_CONFIG["counter_trend_no_sweep"]
-        score += val
-        breakdown["counter_trend_no_sweep"] = val
-
-    return score, breakdown
-
-
-def _calculate_signal_quality_score(signal_quality: dict) -> tuple[float, dict]:
-    """シグナル品質スコア計算"""
-    score = 0.0
-    breakdown: dict[str, float] = {}
-
-    # バークローズ確認
-    if signal_quality.get("bar_close_confirmed", False):
-        val = SCORING_CONFIG["bar_close_confirmed"]
-        score += val
-        breakdown["bar_close_confirmed"] = val
-
-    # セッション
-    session = signal_quality.get("session", "")
-    if session == "London_NY":
-        val = SCORING_CONFIG["session_london_ny"]
-        score += val
-        breakdown["session_london_ny"] = val
-    elif session == "Tokyo":
-        val = SCORING_CONFIG.get("session_tokyo", 0.0)
-        if val != 0.0:
-            score += val
-            breakdown["session_tokyo"] = val
-    elif session == "off_hours":
-        val = SCORING_CONFIG["session_off_hours"]
-        score += val
-        breakdown["session_off_hours"] = val
-
-    # TV confidence
-    tv_confidence = signal_quality.get("tv_confidence")
-    if tv_confidence is not None:
-        if tv_confidence > 0.7:
-            val = SCORING_CONFIG["tv_confidence_high"]
-            score += val
-            breakdown["tv_confidence_high"] = val
-        elif tv_confidence < 0.3:
-            val = SCORING_CONFIG["tv_confidence_low"]
-            score += val
-            breakdown["tv_confidence_low"] = val
-
-    # pattern_similarity: Lorentzian v2の新フィールド
-    # None の場合は旧バージョンのアラート（win_rateのみ）→ 加減点なし
-    pattern_similarity = signal_quality.get("pattern_similarity")
-    if pattern_similarity is not None:
-        if pattern_similarity > 0.70:
-            val = SCORING_CONFIG["pattern_similarity_high"]
-            score += val
-            breakdown["pattern_similarity_high"] = val
-        elif pattern_similarity < 0.30:
-            val = SCORING_CONFIG["pattern_similarity_low"]
-            score += val
-            breakdown["pattern_similarity_low"] = val
-    # else: 0.30〜0.70の中間域は加減点なし（ニュートラル）
-    # Noneの場合（旧バージョンアラート）も加減点なし
-
-    # duplicate_warning: 同方向シグナルが30分以内に3件以上発火した場合のペナルティ
-    # NOTE: このフィールドはzone_touch cooldown実装後（バッチ3）に実際に発火する
-    if signal_quality.get("duplicate_warning", False):
-        val = -0.15
-        score += val
-        breakdown["duplicate_warning"] = val
-
-    return score, breakdown
-
-
-def _is_direction_aligned(zone_direction: str | None, signal_direction: str) -> bool:
-    """ゾーン方向がシグナル方向と一致するかチェック"""
-    if zone_direction is None:
-        return False
-    # demand zone → buy が一致、supply zone → sell が一致
-    if zone_direction == "demand" and signal_direction == "buy":
-        return True
-    if zone_direction == "supply" and signal_direction == "sell":
-        return True
-    # bullish fvg → buy、bearish fvg → sell
-    if zone_direction == "bullish" and signal_direction == "buy":
-        return True
-    if zone_direction == "bearish" and signal_direction == "sell":
-        return True
-    return False
-
-
-def _is_sweep_aligned(sweep_direction: str | None, signal_direction: str) -> bool:
-    """スイープ方向がシグナル方向と一致するかチェック。
-
-    TradingViewアラートの direction フィールドの意味:
-      direction="sell" のスイープ = 高値（buy-side）の流動性を狩って価格がsell方向に動いた
-                                  → llm_structurer で "buy_side" に変換済み → sell エントリー
-      direction="buy"  のスイープ = 安値（sell-side）の流動性を狩って価格がbuy方向に動いた
-                                  → llm_structurer で "sell_side" に変換済み → buy エントリー
+def _check_gates(alert: dict) -> list[str]:
     """
-    if sweep_direction is None:
-        return False
-    # buy_side sweep（高値の流動性を狩った）→ 価格がsell方向に動いた → sell エントリー
-    if sweep_direction == "buy_side" and signal_direction == "sell":
-        return True
-    # sell_side sweep（安値の流動性を狩った）→ 価格がbuy方向に動いた → buy エントリー
-    if sweep_direction == "sell_side" and signal_direction == "buy":
-        return True
-    return False
+    必須ゲートを全てチェックする。
+    戻り値: 不通過の理由リスト（空リスト = 全ゲート通過）
+    """
+    reasons:   list[str] = []
+    regime    = alert.get("regime", "RANGE")
+    h1_adx    = float(alert.get("h1_adx", 0))
+    choch     = bool(alert.get("choch_confirmed", False))
+    fvg_al    = bool(alert.get("fvg_aligned", False))
+    zone_al   = bool(alert.get("zone_aligned", False))
+    sweep     = bool(alert.get("sweep_detected", False))
 
+    # 共通ゲート ①: h1_adx >= 25
+    if h1_adx < 25:
+        reasons.append(f"Gate1: h1_adx={h1_adx:.1f} < 25")
 
-def _determine_wait_condition(structured_data: dict, breakdown: dict) -> str:
-    """wait判定時の昇格条件を決定する"""
-    regime = structured_data.get("regime", {})
-    zone_interaction = structured_data.get("zone_interaction", {})
+    # 共通ゲート ②: RANGE は即 reject（以降のレジーム別チェック不要）
+    if regime == "RANGE":
+        reasons.append("Gate2: regime=RANGE → reject")
+        return reasons
 
-    if not zone_interaction.get("zone_touch") and not zone_interaction.get("fvg_touch"):
-        return "structure_needed: ゾーンまたはFVGタッチを待つ"
+    # レジーム別追加ゲート
+    if regime == "TREND":
+        if not choch:
+            reasons.append("Gate3(TREND): choch_confirmed=false")
+        if not (fvg_al or zone_al):
+            reasons.append("Gate3(TREND): fvg_aligned=false AND zone_aligned=false")
 
-    if not structured_data.get("signal_quality", {}).get("bar_close_confirmed"):
-        return "next_bar: バークローズ確認を待つ"
+    elif regime == "REVERSAL":
+        if not choch:
+            reasons.append("Gate3(REVERSAL): choch_confirmed=false")
+        if not sweep:
+            reasons.append("Gate3(REVERSAL): sweep_detected=false")
 
-    return "cooldown: 追加確認を待つ"
+    elif regime == "BREAKOUT":
+        # CHoCH 不要（レンジブレイク後のリテスト確認が本質）
+        if not (fvg_al or zone_al):
+            reasons.append("Gate3(BREAKOUT): fvg_aligned=false AND zone_aligned=false")
 
-
-def _build_reject_reasons(breakdown: dict) -> list[str]:
-    """breakdownからreject理由を生成する"""
-    reasons = []
-    negative_items = {k: v for k, v in breakdown.items() if v < 0}
-    if negative_items:
-        for key, val in negative_items.items():
-            reasons.append(f"{key}: {val:+.2f}")
-    if not reasons:
-        reasons.append("スコア不足（閾値未達）")
     return reasons
+
+
+# ── 個別スコア評価関数 ──────────────────────────────────────────
+
+def _apply_choch_score(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """CHoCH確認済み → 加点"""
+    if bool(alert.get("choch_confirmed", False)):
+        breakdown["choch_strong"] = cfg["choch_strong"]
+
+
+def _apply_rsi_divergence(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """RSIダイバージェンス一致 → 加点"""
+    if bool(alert.get("rsi_divergence", False)):
+        breakdown["rsi_divergence"] = cfg["rsi_divergence"]
+
+
+def _apply_fvg_zone_overlap(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """FVG と Zone の両方にアライン → 重複ヒットボーナス"""
+    if bool(alert.get("fvg_aligned", False)) and bool(alert.get("zone_aligned", False)):
+        breakdown["fvg_and_zone_overlap"] = cfg["fvg_and_zone_overlap"]
+
+
+def _apply_adx_score(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """15M ADX による加点・減点"""
+    m15_adx = float(alert.get("m15_adx", 0))
+    regime  = alert.get("regime", "RANGE")
+
+    if 25 <= m15_adx <= 35:
+        breakdown["adx_normal"] = cfg["adx_normal"]
+
+    # REVERSAL で ADX が高すぎる場合はペナルティ
+    if regime == "REVERSAL" and m15_adx > 35:
+        breakdown["adx_reversal_penalty"] = cfg["adx_reversal_penalty"]
+
+
+def _apply_h1_direction_score(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """1H 方向とエントリー方向が一致 → 加点"""
+    h1_dir = alert.get("h1_direction", "")
+    dir_   = alert.get("direction", "none")
+    if (h1_dir == "bull" and dir_ == "buy") or (h1_dir == "bear" and dir_ == "sell"):
+        breakdown["h1_direction_aligned"] = cfg["h1_direction_aligned"]
+
+
+def _apply_session_score(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """セッション別の加点・減点"""
+    session_map = {
+        "london_ny": "session_london_ny",
+        "london":    "session_london",
+        "ny":        "session_ny",
+        "tokyo":     "session_tokyo",
+        "off":       "session_off",
+    }
+    key = session_map.get(alert.get("session", ""))
+    if key is None:
+        return
+    val = cfg.get(key, 0.0)
+    if val != 0.0:
+        breakdown[key] = val
+
+
+def _apply_atr_ratio_score(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """ATR ratio（15M ATR / ATR MA20）による加点・減点"""
+    atr_ratio = float(alert.get("atr_ratio", 1.0))
+    if 0.8 <= atr_ratio <= 1.5:
+        breakdown["atr_ratio_normal"] = cfg["atr_ratio_normal"]
+    elif atr_ratio > 1.5:
+        breakdown["atr_ratio_high"] = cfg["atr_ratio_high"]
+
+
+def _apply_news_penalty(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """高インパクトニュース 30 分前後 → 大幅減点"""
+    if bool(alert.get("news_nearby", False)):
+        breakdown["news_nearby"] = cfg["news_nearby"]

@@ -38,9 +38,8 @@ def ask_ai(messages: list[dict], context: dict | None = None,
         if context is not None:
             structured = structurize(context)
             direction = signal_direction or _extract_direction(context)
-            q_trend_available = context.get("q_trend_context") is not None
-            score_result = calculate_score(structured, direction,
-                                           q_trend_available=q_trend_available)
+            alert_dict = _structured_to_alert_dict(structured, direction)
+            score_result = calculate_score(alert_dict)
 
             result = {
                 "market_regime": structured.get("regime", {}).get("classification", "range"),
@@ -120,7 +119,8 @@ def _legacy_ask_ai(messages: list[dict]) -> dict:
             # v3.0 構造化出力 → スコアリングエンジンで判定
             from scoring_engine import calculate_score
             direction = _extract_direction_from_messages(messages)
-            score_result = calculate_score(result, direction)
+            alert_dict = _structured_to_alert_dict(result, direction)
+            score_result = calculate_score(alert_dict)
             return {
                 "market_regime": result.get("regime", {}).get("classification", "range"),
                 "regime_reason": _build_regime_reason(result),
@@ -253,6 +253,67 @@ def _extract_direction(context: dict) -> str:
     if entry_signals:
         return entry_signals[0].get("direction", "buy")
     return "buy"
+
+
+def _structured_to_alert_dict(structured: dict, direction: str) -> dict:
+    """
+    旧 structured 形式（llm_structurer 出力）を
+    Pine Script フラット JSON 形式へ変換する（ai_judge.py レガシーパス用）。
+
+    h1_adx は旧フォーマットに存在しないため、
+    adx_value を下限 25 でクリップして代用する。
+    """
+    regime_map = {"trend": "TREND", "breakout": "BREAKOUT",
+                  "range": "RANGE", "reversal": "REVERSAL"}
+    regime_raw = structured.get("regime", {}).get("classification", "range")
+    regime     = regime_map.get(regime_raw, "RANGE")
+
+    adx    = float(structured.get("regime", {}).get("adx_value") or 25.0)
+    zone   = structured.get("zone_interaction", {})
+    mom    = structured.get("momentum", {})
+    sq     = structured.get("signal_quality", {})
+
+    zone_dir   = zone.get("zone_direction", "")
+    fvg_dir    = zone.get("fvg_direction", "")
+    zone_touch = zone.get("zone_touch", False)
+    fvg_touch  = zone.get("fvg_touch", False)
+
+    zone_aligned = zone_touch and (
+        (zone_dir == "demand" and direction == "buy") or
+        (zone_dir == "supply" and direction == "sell")
+    )
+    fvg_aligned = fvg_touch and (
+        (fvg_dir == "bullish" and direction == "buy") or
+        (fvg_dir == "bearish" and direction == "sell")
+    )
+
+    session_map = {
+        "London_NY": "london_ny", "London": "london",
+        "NY": "ny", "Tokyo": "tokyo", "off_hours": "off",
+    }
+    session = session_map.get(sq.get("session", ""), "london")
+
+    return {
+        "regime":            regime,
+        "direction":         direction,
+        "h1_direction":      "bull" if direction == "buy" else "bear",
+        "h1_adx":            max(adx, 25.0),   # 旧パスは h1_adx 非保有のため下限 25 で代用
+        "m15_adx":           adx,
+        "m15_adx_drop":      0.0,
+        "atr_ratio":         1.2,
+        "choch_confirmed":   sq.get("bar_close_confirmed", True),
+        "fvg_hit":           fvg_touch,
+        "fvg_aligned":       fvg_aligned,
+        "zone_hit":          zone_touch,
+        "zone_aligned":      zone_aligned,
+        "rsi_divergence":    False,
+        "sweep_detected":    zone.get("liquidity_sweep", False),
+        "candle_pattern":    "none",
+        "session":           session,
+        "rsi_trend_aligned": mom.get("trend_aligned", True),
+        "rsi_value":         float(mom.get("rsi_value") or 50.0),
+        "news_nearby":       False,
+    }
 
 
 def _extract_direction_from_messages(messages: list[dict]) -> str:

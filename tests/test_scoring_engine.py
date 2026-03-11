@@ -1,11 +1,24 @@
 """
-tests/test_scoring_engine.py - scoring_engine.py のユニットテスト
-AI Trading System v3.0
+tests/test_scoring_engine.py - scoring_engine.py v4.0 のユニットテスト
+AI Trading System v4.0
 
 テスト対象:
-  - calculate_score() の各ルール判定
-  - 即rejectパターン
-  - スコア閾値によるapprove/wait/reject判定
+  - calculate_score(alert: dict) の必須ゲート判定
+  - 共通スコアテーブルの加点・減点
+  - approve / wait / reject 閾値判定
+
+カバレッジ:
+  1.  TREND approve        : 全ゲート通過 + 高スコア
+  2.  TREND reject         : h1_adx < 25（ゲート不通過）
+  3.  TREND reject         : choch_confirmed=false（ゲート不通過）
+  4.  REVERSAL approve     : sweep + choch + rsi_divergence
+  5.  REVERSAL reject      : sweep_detected=false（ゲート不通過）
+  6.  REVERSAL adx_penalty : m15_adx=38 で adx_reversal_penalty 適用
+  7.  BREAKOUT approve     : fvg_aligned + zone_aligned（CHoCH不要、overlapボーナス）
+  8.  BREAKOUT reject      : fvg_aligned=false AND zone_aligned=false
+  9.  RANGE reject         : regime=RANGE で即 reject
+  10. news_nearby          : -0.30 減点確認
+  11. session_off          : -0.20 減点確認
 """
 
 import sys
@@ -19,369 +32,375 @@ from config import SCORING_CONFIG
 
 
 # ──────────────────────────────────────────────────────────
-# テスト用ヘルパー: 構造化データ生成
+# テスト用ヘルパー: Pine Script フラット JSON 生成
 # ──────────────────────────────────────────────────────────
 
-def _make_structured(
-    regime="range",
-    adx_value=15.0,
-    atr_expanding=False,
-    zone_touch=False,
-    zone_direction=None,
-    fvg_touch=False,
-    fvg_direction=None,
-    liquidity_sweep=False,
-    sweep_direction=None,
-    rsi_value=50.0,
-    rsi_zone="neutral",
-    trend_aligned=False,
-    bar_close_confirmed=True,
-    session="London",
-    tv_confidence=None,
-    tv_win_rate=None,        # 後方互換のため残す
-    pattern_similarity=None, # Lorentzian v2
-    sma20_distance_pct=None,
-    fields_missing=None,
+def _make_alert(
+    regime="TREND",
+    direction="buy",
+    h1_direction="bull",
+    h1_adx=30.0,
+    m15_adx=30.0,
+    m15_adx_drop=1.0,
+    atr_ratio=1.2,
+    choch_confirmed=True,
+    fvg_hit=True,
+    fvg_aligned=True,
+    zone_hit=True,
+    zone_aligned=True,
+    rsi_divergence=False,
+    sweep_detected=False,
+    session="london_ny",
+    rsi_trend_aligned=True,
+    rsi_value=54.0,
+    news_nearby=False,
+    candle_pattern="none",
 ) -> dict:
+    """テスト用の Pine Script アラート dict を生成する"""
     return {
-        "regime": {
-            "classification": regime,
-            "adx_value": adx_value,
-            "adx_rising": adx_value > 20 if adx_value else None,
-            "atr_expanding": atr_expanding,
-            "squeeze_detected": False,
-        },
-        "price_structure": {
-            "above_sma20": True,
-            "sma20_distance_pct": sma20_distance_pct if sma20_distance_pct is not None else 0.5,
-            "perfect_order": None,
-            "higher_highs": None,
-            "lower_lows": None,
-        },
-        "zone_interaction": {
-            "zone_touch": zone_touch,
-            "zone_direction": zone_direction,
-            "fvg_touch": fvg_touch,
-            "fvg_direction": fvg_direction,
-            "liquidity_sweep": liquidity_sweep,
-            "sweep_direction": sweep_direction,
-        },
-        "momentum": {
-            "rsi_value": rsi_value,
-            "rsi_zone": rsi_zone,
-            "trend_aligned": trend_aligned,
-        },
-        "signal_quality": {
-            "source": "Lorentzian",
-            "bar_close_confirmed": bar_close_confirmed,
-            "session": session,
-            "tv_confidence": tv_confidence,
-            "tv_win_rate": tv_win_rate,
-            "pattern_similarity": pattern_similarity,
-        },
-        "data_completeness": {
-            "mt5_connected": True,
-            "fields_missing": fields_missing or [],
-        },
+        "symbol":           "XAUUSD",
+        "timeframe":        "5",
+        "timestamp":        "2026-03-11T10:30:00Z",
+        "price":            2345.67,
+        "atr":              11.18,
+        "atr5":             3.45,
+        "regime":           regime,
+        "direction":        direction,
+        "h1_direction":     h1_direction,
+        "h1_adx":           h1_adx,
+        "m15_adx":          m15_adx,
+        "m15_adx_drop":     m15_adx_drop,
+        "atr_ratio":        atr_ratio,
+        "choch_confirmed":  choch_confirmed,
+        "fvg_hit":          fvg_hit,
+        "fvg_aligned":      fvg_aligned,
+        "zone_hit":         zone_hit,
+        "zone_aligned":     zone_aligned,
+        "rsi_divergence":   rsi_divergence,
+        "sweep_detected":   sweep_detected,
+        "candle_pattern":   candle_pattern,
+        "session":          session,
+        "rsi_trend_aligned": rsi_trend_aligned,
+        "rsi_value":        rsi_value,
+        "news_nearby":      news_nearby,
     }
 
 
 # ──────────────────────────────────────────────────────────
-# 即Rejectテスト
+# 1. TREND approve
 # ──────────────────────────────────────────────────────────
 
-class TestInstantReject(unittest.TestCase):
+class TestTrendApprove(unittest.TestCase):
 
-    def test_range_mid_chase_rejected(self):
-        """レンジ中央での順張り → 即reject"""
-        data = _make_structured(
-            regime="range",
-            sma20_distance_pct=0.1,  # ±0.3%以内
-            zone_touch=False,
-            fvg_touch=False,
+    def test_trend_approve_all_gates_pass(self):
+        """TREND: 全ゲート通過 + 高スコアで approve"""
+        alert = _make_alert(
+            regime="TREND",
+            direction="buy",
+            h1_direction="bull",
+            h1_adx=30.0,
+            m15_adx=30.0,       # adx_normal: +0.10
+            choch_confirmed=True,  # gate pass + choch_strong: +0.20
+            fvg_aligned=True,
+            zone_aligned=True,  # fvg_and_zone_overlap: +0.15
+            session="london_ny",  # session_london_ny: +0.10
+            atr_ratio=1.2,        # atr_ratio_normal: +0.05
         )
-        result = calculate_score(data, "buy")
-        self.assertEqual(result["decision"], "reject")
-        self.assertLess(result["score"], 0)
+        # inject h1_direction aligned fields properly
+        alert["h1_direction"] = "bull"
+        alert["direction"]    = "buy"
 
-    def test_range_with_zone_touch_not_rejected(self):
-        """レンジだがゾーンタッチありなら即rejectしない"""
-        data = _make_structured(
-            regime="range",
-            sma20_distance_pct=0.1,
-            zone_touch=True,
-            zone_direction="demand",
-        )
-        result = calculate_score(data, "buy")
-        self.assertNotEqual(result["score"], -999.0)
+        result = calculate_score(alert)
 
-    def test_critical_data_missing_rejected(self):
-        """重要データ欠損 → 即reject"""
-        data = _make_structured(
-            fields_missing=["rsi_value", "adx_value", "atr_expanding"],
-        )
-        result = calculate_score(data, "buy")
-        self.assertEqual(result["decision"], "reject")
-
-
-# ──────────────────────────────────────────────────────────
-# レジームスコアテスト
-# ──────────────────────────────────────────────────────────
-
-class TestRegimeScore(unittest.TestCase):
-
-    def test_trend_regime_positive_base(self):
-        """Trendレジームは正の基礎スコアを持つ"""
-        data = _make_structured(regime="trend")
-        result = calculate_score(data, "buy")
-        self.assertIn("regime_trend_base", result["score_breakdown"])
-        self.assertGreater(result["score_breakdown"]["regime_trend_base"], 0)
-
-    def test_breakout_regime_highest_base(self):
-        """Breakoutレジームは最高の基礎スコアを持つ"""
-        data = _make_structured(regime="breakout")
-        result = calculate_score(data, "buy")
-        self.assertIn("regime_breakout_base", result["score_breakdown"])
-        breakout_base = result["score_breakdown"]["regime_breakout_base"]
-        self.assertEqual(breakout_base, SCORING_CONFIG["regime_breakout_base"])
-
-    def test_range_regime_negative_base(self):
-        """Rangeレジームは負の基礎スコアを持つ"""
-        data = _make_structured(regime="range", sma20_distance_pct=1.0)
-        result = calculate_score(data, "buy")
-        self.assertIn("regime_range_base", result["score_breakdown"])
-        self.assertLess(result["score_breakdown"]["regime_range_base"], 0)
-
-
-# ──────────────────────────────────────────────────────────
-# ゾーン・構造スコアテスト
-# ──────────────────────────────────────────────────────────
-
-class TestStructureScore(unittest.TestCase):
-
-    def test_zone_touch_aligned_adds_score(self):
-        """ゾーンタッチ（方向一致・Q-trend整合）で加点される"""
-        data = _make_structured(
-            zone_touch=True,
-            zone_direction="demand",
-            trend_aligned=True,
-        )
-        result = calculate_score(data, "buy")
-        self.assertIn("zone_touch_aligned_with_trend", result["score_breakdown"])
-        self.assertGreater(result["score_breakdown"]["zone_touch_aligned_with_trend"], 0)
-
-    def test_zone_touch_misaligned_no_score(self):
-        """ゾーンタッチ（方向不一致）で加点されない"""
-        data = _make_structured(
-            zone_touch=True,
-            zone_direction="supply",
-        )
-        result = calculate_score(data, "buy")
-        self.assertNotIn("zone_touch_aligned_with_trend", result["score_breakdown"])
-        self.assertNotIn("zone_touch_counter_trend", result["score_breakdown"])
-
-    def test_fvg_touch_aligned_adds_score(self):
-        """FVGタッチ（方向一致・Q-trend整合）で加点される"""
-        data = _make_structured(
-            fvg_touch=True,
-            fvg_direction="bullish",
-            trend_aligned=True,
-        )
-        result = calculate_score(data, "buy")
-        self.assertIn("fvg_touch_aligned_with_trend", result["score_breakdown"])
-
-    def test_liquidity_sweep_adds_score(self):
-        """リクイディティスイープで加点される（sell_side sweep + buy entry = 正しい逆張り）"""
-        data = _make_structured(
-            liquidity_sweep=True,
-            sweep_direction="sell_side",
-        )
-        result = calculate_score(data, "buy")
-        self.assertIn("liquidity_sweep", result["score_breakdown"])
-
-    def test_sweep_plus_zone_combo_bonus(self):
-        """スイープ + ゾーンタッチのコンボボーナス（sell_side sweep + demand zone + buy entry）"""
-        data = _make_structured(
-            liquidity_sweep=True,
-            sweep_direction="sell_side",
-            zone_touch=True,
-            zone_direction="demand",
-        )
-        result = calculate_score(data, "buy")
-        self.assertIn("sweep_plus_zone", result["score_breakdown"])
-
-
-# ──────────────────────────────────────────────────────────
-# モメンタムスコアテスト
-# ──────────────────────────────────────────────────────────
-
-class TestMomentumScore(unittest.TestCase):
-
-    def test_trend_aligned_adds_score(self):
-        """トレンド方向一致で加点される"""
-        data = _make_structured(trend_aligned=True)
-        result = calculate_score(data, "buy")
-        self.assertIn("trend_aligned", result["score_breakdown"])
-
-    def test_rsi_confirmation_buy_oversold(self):
-        """買い + RSI oversold で加点される"""
-        data = _make_structured(rsi_value=25.0, rsi_zone="oversold")
-        result = calculate_score(data, "buy")
-        self.assertIn("rsi_confirmation", result["score_breakdown"])
-
-    def test_rsi_divergence_buy_overbought(self):
-        """買い + RSI overbought で減点される"""
-        data = _make_structured(rsi_value=75.0, rsi_zone="overbought")
-        result = calculate_score(data, "buy")
-        self.assertIn("rsi_divergence", result["score_breakdown"])
-        self.assertLess(result["score_breakdown"]["rsi_divergence"], 0)
-
-
-# ──────────────────────────────────────────────────────────
-# シグナル品質スコアテスト
-# ──────────────────────────────────────────────────────────
-
-class TestSignalQualityScore(unittest.TestCase):
-
-    def test_bar_close_confirmed_adds_score(self):
-        """バークローズ確認で加点される"""
-        data = _make_structured(bar_close_confirmed=True)
-        result = calculate_score(data, "buy")
-        self.assertIn("bar_close_confirmed", result["score_breakdown"])
-
-    def test_session_london_ny_bonus(self):
-        """London_NYセッションで加点される"""
-        data = _make_structured(session="London_NY")
-        result = calculate_score(data, "buy")
-        self.assertIn("session_london_ny", result["score_breakdown"])
-
-    def test_session_off_hours_penalty(self):
-        """off_hoursセッションで減点される"""
-        data = _make_structured(session="off_hours")
-        result = calculate_score(data, "buy")
-        self.assertIn("session_off_hours", result["score_breakdown"])
-        self.assertLess(result["score_breakdown"]["session_off_hours"], 0)
-
-    def test_tv_confidence_high_bonus(self):
-        """高TV confidence で加点される"""
-        data = _make_structured(tv_confidence=0.85)
-        result = calculate_score(data, "buy")
-        self.assertIn("tv_confidence_high", result["score_breakdown"])
-
-
-# ──────────────────────────────────────────────────────────
-# 判定閾値テスト
-# ──────────────────────────────────────────────────────────
-
-class TestDecisionThresholds(unittest.TestCase):
-
-    def test_high_score_approves(self):
-        """高スコアで approve される（sell_side sweep + buy = 正しい逆張り）"""
-        data = _make_structured(
-            regime="trend",
-            trend_aligned=True,
-            zone_touch=True,
-            zone_direction="demand",
-            bar_close_confirmed=True,
-            session="London_NY",
-            liquidity_sweep=True,
-            sweep_direction="sell_side",
-        )
-        result = calculate_score(data, "buy")
         self.assertEqual(result["decision"], "approve")
         self.assertGreaterEqual(result["score"], SCORING_CONFIG["approve_threshold"])
-
-    def test_low_score_rejects(self):
-        """低スコアで reject される"""
-        data = _make_structured(
-            regime="range",
-            sma20_distance_pct=1.0,  # Not too close to SMA20
-            session="off_hours",
-            bar_close_confirmed=False,
-            rsi_value=75.0,
-            rsi_zone="overbought",
-        )
-        result = calculate_score(data, "buy")
-        self.assertEqual(result["decision"], "reject")
-
-    def test_medium_score_waits(self):
-        """中間スコアで wait される"""
-        data = _make_structured(
-            regime="trend",
-            trend_aligned=True,
-            bar_close_confirmed=False,
-            sma20_distance_pct=1.0,
-        )
-        result = calculate_score(data, "buy")
-        # trend_aligned(0.10) + regime_trend_base(0.15) = 0.25
-        # bar_close_confirmed=False なので +0.10 がない
-        # 合計 0.25 >= wait_threshold(0.10) かつ < approve_threshold(0.45)
-        self.assertEqual(result["decision"], "wait")
-        self.assertIsNotNone(result["wait_condition"])
+        self.assertEqual(result["reject_reasons"], [])
+        # key breakdown entries present
+        self.assertIn("choch_strong",        result["score_breakdown"])
+        self.assertIn("fvg_and_zone_overlap", result["score_breakdown"])
+        self.assertIn("session_london_ny",   result["score_breakdown"])
 
     def test_result_has_required_keys(self):
-        """結果に必要なキーが含まれる"""
-        data = _make_structured()
-        result = calculate_score(data, "buy")
-        self.assertIn("decision", result)
-        self.assertIn("score", result)
-        self.assertIn("score_breakdown", result)
-        self.assertIn("reject_reasons", result)
-        self.assertIn("wait_condition", result)
+        """戻り値に必要な 4 キーが全て含まれる"""
+        alert  = _make_alert()
+        result = calculate_score(alert)
+        for key in ("decision", "score", "score_breakdown", "reject_reasons"):
+            self.assertIn(key, result)
+
+
+# ──────────────────────────────────────────────────────────
+# 2. TREND reject: h1_adx < 25
+# ──────────────────────────────────────────────────────────
+
+class TestTrendRejectH1Adx(unittest.TestCase):
+
+    def test_trend_reject_h1_adx_below_25(self):
+        """TREND: h1_adx=20 → Gate1 不通過で reject"""
+        alert = _make_alert(h1_adx=20.0)
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertEqual(result["score"], -999.0)
+        self.assertTrue(any("h1_adx" in r for r in result["reject_reasons"]))
+
+
+# ──────────────────────────────────────────────────────────
+# 3. TREND reject: choch_confirmed=false
+# ──────────────────────────────────────────────────────────
+
+class TestTrendRejectChoch(unittest.TestCase):
+
+    def test_trend_reject_choch_false(self):
+        """TREND: choch_confirmed=false → Gate3(TREND) 不通過で reject"""
+        alert = _make_alert(choch_confirmed=False, fvg_aligned=True)
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(
+            any("choch_confirmed" in r for r in result["reject_reasons"])
+        )
+
+    def test_trend_reject_no_fvg_no_zone(self):
+        """TREND: choch=True だが fvg_aligned=False AND zone_aligned=False → reject"""
+        alert = _make_alert(fvg_aligned=False, zone_aligned=False)
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(
+            any("fvg_aligned" in r for r in result["reject_reasons"])
+        )
+
+
+# ──────────────────────────────────────────────────────────
+# 4. REVERSAL approve: sweep + choch + rsi_divergence
+# ──────────────────────────────────────────────────────────
+
+class TestReversalApprove(unittest.TestCase):
+
+    def test_reversal_approve_sweep_choch_rsi(self):
+        """
+        REVERSAL: sweep + choch + rsi_divergence で approve。
+        REVERSAL の direction は h1 と逆 → h1_direction_aligned は付かない。
+        score = choch_strong(0.20) + rsi_divergence(0.15) + session_london_ny(0.10) = 0.45
+        """
+        alert = _make_alert(
+            regime="REVERSAL",
+            direction="sell",       # bull トレンドへの逆張り
+            h1_direction="bull",
+            h1_adx=30.0,
+            m15_adx=28.0,           # adx_normal: +0.10
+            choch_confirmed=True,   # gate pass + choch_strong: +0.20
+            sweep_detected=True,    # gate pass
+            fvg_aligned=False,
+            zone_aligned=False,
+            rsi_divergence=True,    # rsi_divergence: +0.15
+            session="london_ny",    # session_london_ny: +0.10
+        )
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "approve")
+        self.assertIn("choch_strong",     result["score_breakdown"])
+        self.assertIn("rsi_divergence",   result["score_breakdown"])
+        self.assertGreater(result["score_breakdown"]["rsi_divergence"], 0)
+
+
+# ──────────────────────────────────────────────────────────
+# 5. REVERSAL reject: sweep_detected=false
+# ──────────────────────────────────────────────────────────
+
+class TestReversalRejectNoSweep(unittest.TestCase):
+
+    def test_reversal_reject_sweep_false(self):
+        """REVERSAL: sweep_detected=false → Gate3(REVERSAL) 不通過で reject"""
+        alert = _make_alert(
+            regime="REVERSAL",
+            direction="sell",
+            h1_adx=30.0,
+            choch_confirmed=True,
+            sweep_detected=False,   # ← ゲート不通過
+        )
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(
+            any("sweep_detected" in r for r in result["reject_reasons"])
+        )
+
+
+# ──────────────────────────────────────────────────────────
+# 6. REVERSAL adx_penalty: m15_adx=38
+# ──────────────────────────────────────────────────────────
+
+class TestReversalAdxPenalty(unittest.TestCase):
+
+    def test_reversal_adx_penalty_applied(self):
+        """REVERSAL + m15_adx=38(>35) → adx_reversal_penalty が breakdown に含まれる"""
+        alert = _make_alert(
+            regime="REVERSAL",
+            direction="sell",
+            h1_adx=30.0,
+            m15_adx=38.0,           # adx_reversal_penalty 発動
+            choch_confirmed=True,
+            sweep_detected=True,
+        )
+        result = calculate_score(alert)
+
+        # ゲートは通過しているはず
+        self.assertNotEqual(result["score"], -999.0)
+        self.assertIn("adx_reversal_penalty", result["score_breakdown"])
+        self.assertLess(result["score_breakdown"]["adx_reversal_penalty"], 0)
+        # adx_normal は 25〜35 の範囲外なので付かない
+        self.assertNotIn("adx_normal", result["score_breakdown"])
+
+
+# ──────────────────────────────────────────────────────────
+# 7. BREAKOUT approve: CHoCH 不要、fvg+zone overlap ボーナス
+# ──────────────────────────────────────────────────────────
+
+class TestBreakoutApprove(unittest.TestCase):
+
+    def test_breakout_approve_fvg_zone_overlap(self):
+        """
+        BREAKOUT: choch_confirmed=False でもゲート通過。
+        fvg_aligned + zone_aligned → fvg_and_zone_overlap ボーナス。
+        score = fvg_and_zone_overlap(0.15) + h1_direction_aligned(0.10)
+                + session_london_ny(0.10) + adx_normal(0.10) = 0.45
+        """
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bull",
+            h1_adx=30.0,
+            m15_adx=30.0,
+            choch_confirmed=False,  # BREAKOUT はCHoCH不要
+            fvg_aligned=True,
+            zone_aligned=True,      # overlap: +0.15
+            session="london_ny",
+        )
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "approve")
+        self.assertIn("fvg_and_zone_overlap", result["score_breakdown"])
+        self.assertGreater(result["score_breakdown"]["fvg_and_zone_overlap"], 0)
+        # choch_strong は choch_confirmed=False なので付かない
+        self.assertNotIn("choch_strong", result["score_breakdown"])
+
+
+# ──────────────────────────────────────────────────────────
+# 8. BREAKOUT reject: fvg_aligned=false AND zone_aligned=false
+# ──────────────────────────────────────────────────────────
+
+class TestBreakoutRejectNoZone(unittest.TestCase):
+
+    def test_breakout_reject_no_fvg_no_zone(self):
+        """BREAKOUT: fvg_aligned=false AND zone_aligned=false → Gate3(BREAKOUT) 不通過"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            h1_adx=30.0,
+            fvg_aligned=False,
+            zone_aligned=False,
+        )
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(
+            any("fvg_aligned" in r for r in result["reject_reasons"])
+        )
+
+
+# ──────────────────────────────────────────────────────────
+# 9. RANGE reject
+# ──────────────────────────────────────────────────────────
+
+class TestRangeReject(unittest.TestCase):
+
+    def test_range_immediate_reject(self):
+        """regime=RANGE → Gate2 不通過で即 reject"""
+        alert = _make_alert(regime="RANGE")
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertEqual(result["score"], -999.0)
+        self.assertTrue(
+            any("RANGE" in r for r in result["reject_reasons"])
+        )
+
+    def test_range_reject_skips_score_calculation(self):
+        """RANGE reject では score_breakdown が gate_reject のみ"""
+        alert  = _make_alert(regime="RANGE")
+        result = calculate_score(alert)
+
+        self.assertIn("gate_reject", result["score_breakdown"])
+        self.assertEqual(len(result["score_breakdown"]), 1)
+
+
+# ──────────────────────────────────────────────────────────
+# 10. news_nearby: -0.30 減点
+# ──────────────────────────────────────────────────────────
+
+class TestNewsNearbyPenalty(unittest.TestCase):
+
+    def test_news_nearby_penalty_value(self):
+        """news_nearby=true → -0.30 の減点が breakdown に含まれる"""
+        alert = _make_alert(news_nearby=True)
+        result = calculate_score(alert)
+
+        self.assertNotEqual(result["score"], -999.0)   # ゲートは通過
+        self.assertIn("news_nearby", result["score_breakdown"])
+        self.assertAlmostEqual(
+            result["score_breakdown"]["news_nearby"],
+            SCORING_CONFIG["news_nearby"],
+            places=5,
+        )
+        self.assertLess(result["score_breakdown"]["news_nearby"], 0)
+
+    def test_news_nearby_false_no_penalty(self):
+        """news_nearby=false → news_nearby が breakdown に含まれない"""
+        alert  = _make_alert(news_nearby=False)
+        result = calculate_score(alert)
+
+        self.assertNotIn("news_nearby", result["score_breakdown"])
+
+
+# ──────────────────────────────────────────────────────────
+# 11. session_off: -0.20 減点
+# ──────────────────────────────────────────────────────────
+
+class TestSessionOffPenalty(unittest.TestCase):
+
+    def test_session_off_penalty_value(self):
+        """session=off → -0.20 の減点が breakdown に含まれる"""
+        alert = _make_alert(session="off")
+        result = calculate_score(alert)
+
+        self.assertNotEqual(result["score"], -999.0)
+        self.assertIn("session_off", result["score_breakdown"])
+        self.assertAlmostEqual(
+            result["score_breakdown"]["session_off"],
+            SCORING_CONFIG["session_off"],
+            places=5,
+        )
+        self.assertLess(result["score_breakdown"]["session_off"], 0)
+
+    def test_session_london_ny_bonus(self):
+        """session=london_ny → +0.10 の加点"""
+        alert = _make_alert(session="london_ny")
+        result = calculate_score(alert)
+
+        self.assertIn("session_london_ny", result["score_breakdown"])
+        self.assertGreater(result["score_breakdown"]["session_london_ny"], 0)
+
+    def test_session_ny_no_change(self):
+        """session=ny → 加減点なし（session_ny は 0.00）"""
+        alert = _make_alert(session="ny")
+        result = calculate_score(alert)
+
+        self.assertNotIn("session_ny", result["score_breakdown"])
 
 
 # ──────────────────────────────────────────────────────────
 # エントリーポイント
 # ──────────────────────────────────────────────────────────
-
-class TestPatternSimilarity(unittest.TestCase):
-
-    def test_pattern_similarity_high_adds_score(self):
-        """pattern_similarity > 0.70 → pattern_similarity_high加点"""
-        structured = _make_structured(
-            regime="trend",
-            zone_touch=True, zone_direction="demand",
-            trend_aligned=True,
-            bar_close_confirmed=True,
-            pattern_similarity=0.85,
-        )
-        result = calculate_score(structured, "buy")
-        self.assertIn("pattern_similarity_high", result["score_breakdown"])
-        self.assertGreater(result["score_breakdown"]["pattern_similarity_high"], 0)
-
-    def test_pattern_similarity_low_reduces_score(self):
-        """pattern_similarity < 0.30 → pattern_similarity_low減点"""
-        structured = _make_structured(
-            regime="trend",
-            zone_touch=True, zone_direction="demand",
-            trend_aligned=True,
-            bar_close_confirmed=True,
-            pattern_similarity=0.15,
-        )
-        result = calculate_score(structured, "buy")
-        self.assertIn("pattern_similarity_low", result["score_breakdown"])
-        self.assertLess(result["score_breakdown"]["pattern_similarity_low"], 0)
-
-    def test_pattern_similarity_none_no_effect(self):
-        """pattern_similarity=None（旧バージョン互換）→ 加減点なし"""
-        structured_with = _make_structured(
-            regime="trend", zone_touch=True, zone_direction="demand",
-            trend_aligned=True, pattern_similarity=0.50,
-        )
-        structured_none = _make_structured(
-            regime="trend", zone_touch=True, zone_direction="demand",
-            trend_aligned=True, pattern_similarity=None,
-        )
-        result_with = calculate_score(structured_with, "buy")
-        result_none = calculate_score(structured_none, "buy")
-        # Noneの場合はpattern_similarity系のキーがbreakdownに存在しない
-        self.assertNotIn("pattern_similarity_high", result_none["score_breakdown"])
-        self.assertNotIn("pattern_similarity_low", result_none["score_breakdown"])
-
-    def test_tv_win_rate_bonus_removed(self):
-        """tv_win_rate_bonusキーがSCORING_CONFIGに存在しないこと"""
-        self.assertNotIn("tv_win_rate_bonus", SCORING_CONFIG)
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
