@@ -112,7 +112,7 @@ bullish_choch = not na(last_swing_high) and close > last_swing_high and close[1]
 bearish_choch = not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low
 
 bool choch_confirmed = direction == "buy"  ? bullish_choch :
-                       direction == "sell" ? bearish_choch : false
+     direction == "sell" ? bearish_choch : false
 
 if bullish_choch
     last_swing_high := na
@@ -179,7 +179,7 @@ if _bbs > 0
 
 bool fvg_hit     = fvg_hit_bull or fvg_hit_bear
 bool fvg_aligned = direction == "buy"  ? fvg_hit_bull :
-                   direction == "sell" ? fvg_hit_bear : false
+     direction == "sell" ? fvg_hit_bear : false
 
 // ─── Zone（需給ゾーン。ヒット検出用） ─────────────────────────────────────────
 // Demand: 陰線候補 → 上昇インパルス確認 → 需要ゾーン確定（buy側）
@@ -282,9 +282,9 @@ bool rsi_trend_aligned = direction == "buy"  ? rsi_value > 50 :
 // ny:        17:00-21:00 UTC  / tokyo:  00:00-06:00 UTC / off: それ以外
 int h_utc = hour(time, "UTC")
 string session = h_utc >= 13 and h_utc < 17 ? "london_ny" :
-                 h_utc >= 8  and h_utc < 13 ? "london"    :
-                 h_utc >= 17 and h_utc < 21 ? "ny"        :
-                 h_utc >= 0  and h_utc < 6  ? "tokyo"     : "off"
+     h_utc >= 8  and h_utc < 13 ? "london"    :
+     h_utc >= 17 and h_utc < 21 ? "ny"        :
+     h_utc >= 0  and h_utc < 6  ? "tokyo"     : "off"
 
 // ─── キャンドルパターン判定 ────────────────────────────────────────────────────
 body_size   = math.abs(close - open)
@@ -302,8 +302,8 @@ prev_body_lo = math.min(close[1], open[1])
 bull_engulf  = close > open and open <= prev_body_lo and close >= prev_body_hi and close[1] < open[1]
 bear_engulf  = close < open and open >= prev_body_hi and close <= prev_body_lo and close[1] > open[1]
 
-string candle_pattern = (bull_pin or bear_pin)     ? "pin_bar"   :
-                        (bull_engulf or bear_engulf) ? "engulfing" : "none"
+string candle_pattern = (bull_pin or bear_pin) ? "pin_bar" :
+     (bull_engulf or bear_engulf) ? "engulfing" : "none"
 
 // ─── スイープ検出（REVERSAL用） ────────────────────────────────────────────────
 // 直前 swing_length×2 本のスイング高値/安値に対して
@@ -382,9 +382,9 @@ if show_debug
                              frame_color  = color.gray, frame_width  = 1)
 
     color regime_col = regime == "TREND"    ? color.green :
-                       regime == "REVERSAL" ? color.red   :
-                       regime == "BREAKOUT" ? color.blue  :
-                       color.gray
+         regime == "REVERSAL" ? color.red   :
+         regime == "BREAKOUT" ? color.blue  :
+         color.gray
 
     table.cell(t, 0,  0, "REGIME",         text_color=color.white,  bgcolor=color.new(color.black, 70))
     table.cell(t, 1,  0, regime + " " + direction,
@@ -424,7 +424,7 @@ if show_debug
     table.cell(t, 0, 10, "Session",        text_color=color.white,  bgcolor=color.new(color.black, 70))
     table.cell(t, 1, 10, session,
                                             text_color=session == "london_ny" ? color.lime :
-                                                        session == "off"       ? color.gray  : color.yellow,
+                                                 session == "off"       ? color.gray  : color.yellow,
                                             bgcolor=color.new(color.black, 70))
     table.cell(t, 0, 11, "Alert firing",   text_color=color.white,  bgcolor=color.new(color.black, 70))
     table.cell(t, 1, 11, str.tostring(should_alert),
