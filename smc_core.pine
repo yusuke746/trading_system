@@ -6,7 +6,8 @@ swing_length      = input.int(5,    "スイング検出バー数",      minval=2
 fvg_atr_min_mult  = input.float(0.3,"FVG最小サイズ(ATR倍率)",  minval=0.1, maxval=1.0, step=0.1)
 fvg_show          = input.bool(true, "FVG表示")
 zone_impulse_bars = input.int(10,   "インパルス判定バー数",     minval=3,  maxval=30)
-zone_impulse_mult = input.float(2.0,"インパルス判定ATR倍率",    minval=0.5, maxval=5.0, step=0.1)
+zone_impulse_mult = input.float(3.5, "インパルス判定ATR倍率",    minval=0.5, maxval=8.0, step=0.5)
+zone_max_age      = input.int(200,   "Zone最大有効バー数",        minval=50,  maxval=1000)
 zone_show         = input.bool(true, "Zone表示")
 atr_period        = input.int(14,   "ATR期間",                 minval=5,  maxval=30)
 show_debug        = input.bool(true, "デバッグ情報表示")
@@ -111,10 +112,12 @@ var float sup_cand_atr  = na   // 候補バー時点のATRを固定保存
 var array<box>   dem_boxes  = array.new<box>()
 var array<float> dem_lows   = array.new<float>()      // 無効化判定用（zone底）
 var array<label> dem_labels = array.new<label>()
+var array<int>   dem_bars   = array.new<int>()         // 確定bar_index（age管理）
 
 var array<box>   sup_boxes  = array.new<box>()
 var array<float> sup_highs  = array.new<float>()      // 無効化判定用（zone天井）
 var array<label> sup_labels = array.new<label>()
+var array<int>   sup_bars   = array.new<int>()         // 確定bar_index（age管理）
 
 bool is_bearish = close < open
 bool is_bullish = close > open
@@ -147,6 +150,7 @@ if not na(dem_cand_bar)
             array.push(dem_boxes,  b)
             array.push(dem_lows,   dem_cand_low)
             array.push(dem_labels, lbl)
+            array.push(dem_bars,   bar_index)
         // ②確定後 → 候補リセット（重複確定を防ぐ）
         dem_cand_bar := na
 
@@ -164,39 +168,44 @@ if not na(sup_cand_bar)
             array.push(sup_boxes,  b)
             array.push(sup_highs,  sup_cand_high)
             array.push(sup_labels, lbl)
+            array.push(sup_bars,   bar_index)
         // ②確定後 → 候補リセット（重複確定を防ぐ）
         sup_cand_bar := na
 
 // ─── 確定済み需要ゾーン：右端延長 & 無効化チェック ────────────────────────────
-// 無効化：zone底をclose確定で下抜けたとき（ヒゲ抜けでは無効化しない）
+// 無効化：zone底をclose確定で下抜け、または zone_max_age バー経過
 int _dbi = array.size(dem_boxes) - 1
 while _dbi >= 0
     b        = array.get(dem_boxes,  _dbi)
     zone_low = array.get(dem_lows,   _dbi)
     lbl      = array.get(dem_labels, _dbi)
-    if close < zone_low
+    zone_bar = array.get(dem_bars,   _dbi)
+    if close < zone_low or (bar_index - zone_bar) > zone_max_age
         box.delete(b)
         label.delete(lbl)
         array.remove(dem_boxes,  _dbi)
         array.remove(dem_lows,   _dbi)
         array.remove(dem_labels, _dbi)
+        array.remove(dem_bars,   _dbi)
     else
         box.set_right(b, bar_index)
     _dbi -= 1
 
 // ─── 確定済み供給ゾーン：右端延長 & 無効化チェック ────────────────────────────
-// 無効化：zone天井をclose確定で上抜けたとき（ヒゲ抜けでは無効化しない）
+// 無効化：zone天井をclose確定で上抜け、または zone_max_age バー経過
 int _sbi = array.size(sup_boxes) - 1
 while _sbi >= 0
     b         = array.get(sup_boxes,  _sbi)
     zone_high = array.get(sup_highs,  _sbi)
     lbl       = array.get(sup_labels, _sbi)
-    if close > zone_high
+    zone_bar  = array.get(sup_bars,   _sbi)
+    if close > zone_high or (bar_index - zone_bar) > zone_max_age
         box.delete(b)
         label.delete(lbl)
         array.remove(sup_boxes,  _sbi)
         array.remove(sup_highs,  _sbi)
         array.remove(sup_labels, _sbi)
+        array.remove(sup_bars,   _sbi)
     else
         box.set_right(b, bar_index)
     _sbi -= 1
