@@ -168,6 +168,45 @@ SCORING_CONFIG = {
     "pattern_similarity_high":  0.10,   # similarity > 0.70: 過去に類似パターンあり → 加点
     "pattern_similarity_low":  -0.10,   # similarity < 0.30: 類似パターン希薄 → 減点
     "pattern_similarity_none":  0.00,   # similarity = None（旧バージョン互換）: 加減点なし
+
+    # ── v4.0 新アーキテクチャ（Pine Script 直接 JSON）スコアテーブル ────────────
+    # scoring_engine.py v4.0 が参照するパラメータ。
+    # 旧パラメータは後方互換のため残す。
+
+    # 判定閾値（v4.0 用に上書き）
+    "approve_threshold":      0.25,   # v3.0: 0.45 → v4.0: 0.25（フラット JSON の点数分布に合わせて調整）
+    "wait_threshold":         0.00,   # v3.0: 0.10 → v4.0: 0.00
+
+    # CHoCH 確認（強い構造転換）
+    "choch_strong":           0.20,   # choch_confirmed == true
+
+    # RSI ダイバージェンス
+    "rsi_divergence":         0.15,   # rsi_divergence == true（価格とRSIの逆行確認）
+
+    # FVG × Zone の重複ヒットボーナス
+    "fvg_and_zone_overlap":   0.15,   # fvg_aligned == true AND zone_aligned == true
+
+    # 15M ADX 強度
+    "adx_normal":             0.10,   # m15_adx 25〜35（健全なトレンド強度）
+    "adx_reversal_penalty":  -0.10,   # REVERSAL かつ m15_adx > 35（ADX 過熱でREVERSAL 信頼性低下）
+
+    # 1H 方向一致
+    "h1_direction_aligned":   0.10,   # h1_direction == "bull" and direction == "buy"
+                                      # h1_direction == "bear" and direction == "sell"
+
+    # セッション別（v4.0 で london/ny/off を追加）
+    "session_london_ny":      0.10,   # London/NY オーバーラップ（最高流動性）
+    "session_london":         0.05,   # London オープン
+    "session_ny":             0.00,   # NY セッション（加減点なし）
+    "session_tokyo":         -0.10,   # Tokyo セッション（低流動性）
+    "session_off":           -0.20,   # オフアワーズ（最低流動性）
+
+    # ATR ratio（15M ATR / ATR MA20）
+    "atr_ratio_normal":       0.05,   # 0.8〜1.5 倍（正常ボラティリティ）
+    "atr_ratio_high":        -0.05,   # 1.5 倍超（ボラティリティ過熱）
+
+    # ニュースフィルター
+    "news_nearby":           -0.30,   # 高インパクトニュース 30 分前後
 }
 
 # ── 高インパクト経済指標スケジュール（UTC）──────────────────
