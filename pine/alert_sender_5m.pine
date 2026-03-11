@@ -1,0 +1,434 @@
+//@version=6
+indicator("AI Alert Sender [XAUUSD/5M]", overlay=true, max_boxes_count=200)
+
+// ─── Parameters ───────────────────────────────────────────────────────────────
+adx_trend_min     = input.int(25,    "ADXトレンド閾値",        minval=10, maxval=50)
+adx_range_max     = input.int(20,    "ADXレンジ閾値",          minval=5,  maxval=30)
+adx_reversal_drop = input.int(5,     "ADX低下幅（REVERSAL）",  minval=1,  maxval=15)
+adx_period        = input.int(14,    "ADX期間",                minval=5,  maxval=30)
+ema_period        = input.int(21,    "EMA期間",                minval=5,  maxval=50)
+atr_breakout_mult = input.float(1.5, "ATRブレイク倍率",         minval=1.0, maxval=3.0, step=0.1)
+atr_period        = input.int(14,    "ATR期間",                minval=5,  maxval=30)
+range_lookback    = input.int(10,    "レンジ判定バー数",         minval=5,  maxval=20)
+swing_length      = input.int(3,     "スイング検出バー数",       minval=2,  maxval=10)
+fvg_atr_min_mult  = input.float(0.3, "FVG最小サイズ(ATR倍率)", minval=0.1, maxval=1.0, step=0.1)
+zone_impulse_bars = input.int(6,     "インパルス判定バー数",     minval=3,  maxval=30)
+zone_impulse_mult = input.float(3.5, "インパルス判定ATR倍率",    minval=0.5, maxval=8.0, step=0.5)
+zone_max_age      = input.int(200,   "Zone最大有効バー数",       minval=50,  maxval=1000)
+rsi_period        = input.int(14,    "RSI期間",                 minval=5,  maxval=30)
+sweep_atr_mult    = input.float(0.2, "スイープ貫通量(ATR倍率)", minval=0.1, maxval=1.0, step=0.1)
+cooldown_bars     = input.int(2,     "アラートクールダウン（バー数）", minval=1, maxval=10)
+show_debug        = input.bool(true, "デバッグテーブル表示")
+
+// ─── Manual ADX（DMIベース） ──────────────────────────────────────────────────
+adx_calc(h, l, c, period) =>
+    up       = ta.change(h)
+    down     = -ta.change(l)
+    plus_dm  = (up > down and up > 0) ? up : 0.0
+    minus_dm = (down > up and down > 0) ? down : 0.0
+    tr       = math.max(math.max(h - l, math.abs(h - nz(c[1], c))), math.abs(l - nz(c[1], c)))
+    atr_s    = ta.rma(tr, period)
+    plus_di  = atr_s != 0 ? 100.0 * ta.rma(plus_dm,  period) / atr_s : 0.0
+    minus_di = atr_s != 0 ? 100.0 * ta.rma(minus_dm, period) / atr_s : 0.0
+    di_sum   = plus_di + minus_di
+    dx       = di_sum != 0 ? 100.0 * math.abs(plus_di - minus_di) / di_sum : 0.0
+    ta.rma(dx, period)
+
+// ─── 1H 大局フィルター ─────────────────────────────────────────────────────────
+[h1_close, h1_high, h1_low] = request.security(
+     syminfo.tickerid, "60", [close, high, low],
+     lookahead=barmerge.lookahead_off)
+
+h1_adx = request.security(
+     syminfo.tickerid, "60",
+     adx_calc(high, low, close, adx_period),
+     lookahead=barmerge.lookahead_off)
+
+h1_ema = request.security(
+     syminfo.tickerid, "60",
+     ta.ema(close, ema_period),
+     lookahead=barmerge.lookahead_off)
+
+h1_direction   = h1_close > h1_ema ? "bull" : "bear"
+h1_adx_valid   = h1_adx >= adx_trend_min
+h1_trend_valid = h1_adx_valid
+
+// ─── 15M レジーム計算（int変換してrequest.security経由で取得） ─────────────────
+// エンコード: RANGE=0, TREND=1, REVERSAL=2, BREAKOUT=3
+// direction:  none=0, buy=1, sell=2
+f_m15() =>
+    _adx      = adx_calc(high, low, close, adx_period)
+    _ema      = ta.ema(close, ema_period)
+    _atr      = ta.atr(atr_period)
+    _atr_ma20 = ta.sma(_atr, 20)
+    _adx_avg5 = ta.sma(_adx, 5)
+    _atr_ratio = _atr_ma20 > 0 ? _atr / _atr_ma20 : 1.0
+    _adx_drop  = _adx_avg5 - _adx
+    _range_high = ta.highest(high[1], range_lookback)
+    _range_low  = ta.lowest(low[1],   range_lookback)
+    _adx_avg_lb = ta.sma(_adx, range_lookback)
+    _is_rev = _adx >= adx_trend_min and _adx < (_adx_avg5 - adx_reversal_drop)
+    _is_bo  = _atr > _atr_ma20 * atr_breakout_mult and
+         _adx_avg_lb < adx_range_max and _adx >= adx_range_max
+    _trend_align = (h1_direction == "bull" and close > _ema) or
+         (h1_direction == "bear" and close < _ema)
+    _is_trend = _adx >= adx_trend_min and h1_trend_valid and _trend_align
+    _regime_int = _is_rev ? 2 : _is_bo ? 3 : _is_trend ? 1 : 0
+    _rev_dir   = h1_direction == "bull" ? 2 : 1
+    _bo_dir    = close > _range_high ? 1 : close < _range_low ? 2 : 0
+    _trend_dir = h1_direction == "bull" and close > _ema ? 1 :
+         h1_direction == "bear" and close < _ema ? 2 : 0
+    _dir_int   = _regime_int == 2 ? _rev_dir :
+         _regime_int == 3 ? _bo_dir :
+         _regime_int == 1 ? _trend_dir : 0
+    [_regime_int, _dir_int, _adx, _atr, _atr_ma20, _adx_drop, _atr_ratio]
+
+[m15_regime_int, m15_dir_int, m15_adx, m15_atr, m15_atr_ma20, m15_adx_drop, m15_atr_ratio] =
+     request.security(syminfo.tickerid, "15", f_m15(),
+         lookahead=barmerge.lookahead_off)
+
+// ─── 15M レジーム・方向デコード ───────────────────────────────────────────────
+string regime = m15_regime_int == 1 ? "TREND" :
+     m15_regime_int == 2 ? "REVERSAL" :
+     m15_regime_int == 3 ? "BREAKOUT" : "RANGE"
+string direction = m15_dir_int == 1 ? "buy" :
+     m15_dir_int == 2 ? "sell" : "none"
+
+// ─── 5M 計算 ──────────────────────────────────────────────────────────────────
+atr5      = ta.atr(atr_period)
+rsi_value = ta.rsi(close, rsi_period)
+
+// ─── CHoCH（5M、swing_length=3） ──────────────────────────────────────────────
+swing_high = ta.pivothigh(high, swing_length, swing_length)
+swing_low  = ta.pivotlow(low,  swing_length, swing_length)
+
+var float last_swing_high = na
+var float last_swing_low  = na
+
+if not na(swing_high)
+    last_swing_high := swing_high
+if not na(swing_low)
+    last_swing_low := swing_low
+
+bullish_choch = not na(last_swing_high) and close > last_swing_high and close[1] <= last_swing_high
+bearish_choch = not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low
+
+bool choch_confirmed = direction == "buy"  ? bullish_choch :
+     direction == "sell" ? bearish_choch : false
+
+if bullish_choch
+    last_swing_high := na
+if bearish_choch
+    last_swing_low := na
+
+// ─── FVG（5M、ヒット検出用。ボックス描画なし） ────────────────────────────────
+// Bull FVG: high[2] < low[0]  → ゾーン範囲 [high[2], low[0]]
+// Bear FVG: low[2]  > high[0] → ゾーン範囲 [high[0], low[2]]
+fvg_min_size = atr5 * fvg_atr_min_mult
+
+var array<float> bull_fvg_lo  = array.new<float>()
+var array<float> bull_fvg_hi  = array.new<float>()
+var array<float> bull_fvg_mid = array.new<float>()
+
+var array<float> bear_fvg_lo  = array.new<float>()
+var array<float> bear_fvg_hi  = array.new<float>()
+var array<float> bear_fvg_mid = array.new<float>()
+
+if high[2] < low[0] and (low[0] - high[2]) >= fvg_min_size
+    array.push(bull_fvg_lo,  high[2])
+    array.push(bull_fvg_hi,  low[0])
+    array.push(bull_fvg_mid, (high[2] + low[0]) / 2.0)
+
+if low[2] > high[0] and (low[2] - high[0]) >= fvg_min_size
+    array.push(bear_fvg_lo,  high[0])
+    array.push(bear_fvg_hi,  low[2])
+    array.push(bear_fvg_mid, (high[0] + low[2]) / 2.0)
+
+// Bull FVG 無効化（close <= mid で50%以上埋まり）
+int _bfi = array.size(bull_fvg_lo) - 1
+while _bfi >= 0
+    if close <= array.get(bull_fvg_mid, _bfi)
+        array.remove(bull_fvg_lo,  _bfi)
+        array.remove(bull_fvg_hi,  _bfi)
+        array.remove(bull_fvg_mid, _bfi)
+    _bfi -= 1
+
+// Bear FVG 無効化（close >= mid で50%以上埋まり）
+int _bbi = array.size(bear_fvg_lo) - 1
+while _bbi >= 0
+    if close >= array.get(bear_fvg_mid, _bbi)
+        array.remove(bear_fvg_lo,  _bbi)
+        array.remove(bear_fvg_hi,  _bbi)
+        array.remove(bear_fvg_mid, _bbi)
+    _bbi -= 1
+
+// FVG ヒット判定
+bool fvg_hit_bull = false
+int  _bfs = array.size(bull_fvg_lo)
+if _bfs > 0
+    for i = 0 to _bfs - 1
+        if close >= array.get(bull_fvg_lo, i) and close <= array.get(bull_fvg_hi, i)
+            fvg_hit_bull := true
+            break
+
+bool fvg_hit_bear = false
+int  _bbs = array.size(bear_fvg_lo)
+if _bbs > 0
+    for i = 0 to _bbs - 1
+        if close >= array.get(bear_fvg_lo, i) and close <= array.get(bear_fvg_hi, i)
+            fvg_hit_bear := true
+            break
+
+bool fvg_hit     = fvg_hit_bull or fvg_hit_bear
+bool fvg_aligned = direction == "buy"  ? fvg_hit_bull :
+     direction == "sell" ? fvg_hit_bear : false
+
+// ─── Zone（5M、需給ゾーン。ヒット検出用） ─────────────────────────────────────
+// Demand: 陰線候補 → 上昇インパルス確認 → 需要ゾーン確定（buy側）
+// Supply: 陽線候補 → 下落インパルス確認 → 供給ゾーン確定（sell側）
+var int   dem_cand_bar  = na
+var float dem_cand_low  = na
+var float dem_cand_high = na
+var float dem_cand_atr  = na
+
+var int   sup_cand_bar  = na
+var float sup_cand_low  = na
+var float sup_cand_high = na
+var float sup_cand_atr  = na
+
+var array<float> dem_lo   = array.new<float>()
+var array<float> dem_hi   = array.new<float>()
+var array<int>   dem_bars = array.new<int>()
+
+var array<float> sup_lo   = array.new<float>()
+var array<float> sup_hi   = array.new<float>()
+var array<int>   sup_bars = array.new<int>()
+
+bool is_bearish = close < open
+bool is_bullish = close > open
+
+if is_bearish
+    dem_cand_bar  := bar_index
+    dem_cand_low  := low
+    dem_cand_high := high
+    dem_cand_atr  := atr5
+
+if is_bullish
+    sup_cand_bar  := bar_index
+    sup_cand_low  := low
+    sup_cand_high := high
+    sup_cand_atr  := atr5
+
+if not na(dem_cand_bar)
+    if bar_index - dem_cand_bar > zone_impulse_bars
+        dem_cand_bar := na
+    else if (high - dem_cand_low) >= dem_cand_atr * zone_impulse_mult
+        array.push(dem_lo,   dem_cand_low)
+        array.push(dem_hi,   dem_cand_high)
+        array.push(dem_bars, bar_index)
+        dem_cand_bar := na
+
+if not na(sup_cand_bar)
+    if bar_index - sup_cand_bar > zone_impulse_bars
+        sup_cand_bar := na
+    else if (sup_cand_high - low) >= sup_cand_atr * zone_impulse_mult
+        array.push(sup_lo,   sup_cand_low)
+        array.push(sup_hi,   sup_cand_high)
+        array.push(sup_bars, bar_index)
+        sup_cand_bar := na
+
+// Zone 無効化・age管理
+int _dbi = array.size(dem_lo) - 1
+while _dbi >= 0
+    if close < array.get(dem_lo, _dbi) or (bar_index - array.get(dem_bars, _dbi)) > zone_max_age
+        array.remove(dem_lo,   _dbi)
+        array.remove(dem_hi,   _dbi)
+        array.remove(dem_bars, _dbi)
+    _dbi -= 1
+
+int _sbi = array.size(sup_lo) - 1
+while _sbi >= 0
+    if close > array.get(sup_hi, _sbi) or (bar_index - array.get(sup_bars, _sbi)) > zone_max_age
+        array.remove(sup_lo,   _sbi)
+        array.remove(sup_hi,   _sbi)
+        array.remove(sup_bars, _sbi)
+    _sbi -= 1
+
+// Zone ヒット判定
+bool zone_hit_dem = false
+int  _ds = array.size(dem_lo)
+if _ds > 0
+    for i = 0 to _ds - 1
+        if close >= array.get(dem_lo, i) and close <= array.get(dem_hi, i)
+            zone_hit_dem := true
+            break
+
+bool zone_hit_sup = false
+int  _ss = array.size(sup_lo)
+if _ss > 0
+    for i = 0 to _ss - 1
+        if close >= array.get(sup_lo, i) and close <= array.get(sup_hi, i)
+            zone_hit_sup := true
+            break
+
+bool zone_hit     = zone_hit_dem or zone_hit_sup
+bool zone_aligned = direction == "buy"  ? zone_hit_dem :
+     direction == "sell" ? zone_hit_sup : false
+
+// ─── RSI方向確認 ──────────────────────────────────────────────────────────────
+bool rsi_trend_aligned = direction == "buy"  ? rsi_value > 50 :
+     direction == "sell" ? rsi_value < 50 : false
+
+// ─── セッション判定（UTC基準） ─────────────────────────────────────────────────
+// london_ny: 13:00-17:00 UTC  / london: 08:00-13:00 UTC
+// ny:        17:00-21:00 UTC  / tokyo:  00:00-06:00 UTC / off: それ以外
+int h_utc = hour(time, "UTC")
+string session = h_utc >= 13 and h_utc < 17 ? "london_ny" :
+     h_utc >= 8  and h_utc < 13 ? "london"    :
+     h_utc >= 17 and h_utc < 21 ? "ny"        :
+     h_utc >= 0  and h_utc < 6  ? "tokyo"     : "off"
+
+// ─── キャンドルパターン判定 ────────────────────────────────────────────────────
+body_size   = math.abs(close - open)
+upper_wick  = high - math.max(close, open)
+lower_wick  = math.min(close, open) - low
+total_range = high - low
+
+// ピンバー: ヒゲが実体の2倍以上 かつ 総レンジの60%以上
+bull_pin = body_size > 0 and lower_wick >= body_size * 2.0 and lower_wick >= total_range * 0.6
+bear_pin = body_size > 0 and upper_wick >= body_size * 2.0 and upper_wick >= total_range * 0.6
+
+// 包み足: 前バーの実体を完全に包む
+prev_body_hi = math.max(close[1], open[1])
+prev_body_lo = math.min(close[1], open[1])
+bull_engulf  = close > open and open <= prev_body_lo and close >= prev_body_hi and close[1] < open[1]
+bear_engulf  = close < open and open >= prev_body_hi and close <= prev_body_lo and close[1] > open[1]
+
+string candle_pattern = (bull_pin or bear_pin) ? "pin_bar" :
+     (bull_engulf or bear_engulf) ? "engulfing" : "none"
+
+// ─── スイープ検出（5M、REVERSAL用） ───────────────────────────────────────────
+// 直前 swing_length×2 本のスイング高値/安値に対して
+// ヒゲが超えかつ close が戻ったバー。貫通量 >= ATR×sweep_atr_mult を条件とする
+sweep_lookback = swing_length * 2
+sweep_lo = ta.lowest(low[1],   sweep_lookback)  // [1]で当バー除外
+sweep_hi = ta.highest(high[1], sweep_lookback)  // [1]で当バー除外
+
+// 安値スイープ: ヒゲが直近安値を貫通し close が戻る（sell-side liquidity 狩り → buy方向）
+sweep_low_pierce  = low < sweep_lo and close > sweep_lo and (sweep_lo - low) >= atr5 * sweep_atr_mult
+// 高値スイープ: ヒゲが直近高値を貫通し close が戻る（buy-side liquidity 狩り → sell方向）
+sweep_high_pierce = high > sweep_hi and close < sweep_hi and (high - sweep_hi) >= atr5 * sweep_atr_mult
+
+bool sweep_detected = sweep_low_pierce or sweep_high_pierce
+
+// ─── rsi_divergence（未実装・false固定） ──────────────────────────────────────
+// TODO: STEP4で正式実装予定
+// 定義: 価格が直近スイング安値/高値を更新しRSIが同方向に更新しないケース
+bool rsi_divergence = false
+
+// ─── news_nearby（当面false固定） ─────────────────────────────────────────────
+// ⚠️ バックログ: 1ヶ月以内に実装すること
+// 理由: -0.30 は全テーブル最大マイナス項目。false固定では防御が無効
+bool news_nearby = false
+
+// ─── アラート発火条件 ──────────────────────────────────────────────────────────
+// 必須ゲート定義:
+//   TREND:    CHoCH確認 AND (Zone or FVG ヒット)
+//   REVERSAL: スイープ確認 AND CHoCH確認
+//   BREAKOUT: Zone or FVG でのリテスト確認
+var int last_alert_bar = na
+bool cooldown_ok  = na(last_alert_bar) or (bar_index - last_alert_bar) > cooldown_bars
+bool should_alert = cooldown_ok and (
+     (regime == "TREND"     and choch_confirmed and (fvg_aligned or zone_aligned)) or
+     (regime == "REVERSAL"  and sweep_detected  and choch_confirmed)                or
+     (regime == "BREAKOUT"  and (fvg_aligned or zone_aligned))
+     )
+
+// ─── アラートJSON構築・送信 ────────────────────────────────────────────────────
+if barstate.isconfirmed and should_alert
+    last_alert_bar := bar_index
+    ts = str.format_time(time_close, "yyyy-MM-dd'T'HH:mm:ss'Z'", "UTC")
+    json = "{"                                                                    +
+           '"symbol":"'           + syminfo.ticker                    + '",'     +
+           '"timeframe":"'        + timeframe.period                  + '",'     +
+           '"timestamp":"'        + ts                                + '",'     +
+           '"price":'             + str.tostring(close,         "#.##") + ","    +
+           '"atr":'               + str.tostring(m15_atr,       "#.##") + ","    +
+           '"regime":"'           + regime                            + '",'     +
+           '"direction":"'        + direction                         + '",'     +
+           '"h1_direction":"'     + h1_direction                      + '",'     +
+           '"h1_adx":'            + str.tostring(h1_adx,        "#.#")  + ","    +
+           '"m15_adx":'           + str.tostring(m15_adx,       "#.#")  + ","    +
+           '"m15_adx_drop":'      + str.tostring(m15_adx_drop,  "#.#")  + ","    +
+           '"atr_ratio":'         + str.tostring(m15_atr_ratio,  "#.##") + ","   +
+           '"choch_confirmed":'   + str.tostring(choch_confirmed)     + ","      +
+           '"fvg_hit":'           + str.tostring(fvg_hit)             + ","      +
+           '"fvg_aligned":'       + str.tostring(fvg_aligned)         + ","      +
+           '"zone_hit":'          + str.tostring(zone_hit)            + ","      +
+           '"zone_aligned":'      + str.tostring(zone_aligned)        + ","      +
+           '"rsi_divergence":'    + str.tostring(rsi_divergence)      + ","      +
+           '"sweep_detected":'    + str.tostring(sweep_detected)      + ","      +
+           '"candle_pattern":"'   + candle_pattern                    + '",'     +
+           '"session":"'          + session                           + '",'     +
+           '"rsi_trend_aligned":' + str.tostring(rsi_trend_aligned)   + ","      +
+           '"rsi_value":'         + str.tostring(rsi_value,     "#.#") + ","     +
+           '"news_nearby":'       + str.tostring(news_nearby)         +
+           "}"
+    alert(json, alert.freq_once_per_bar_close)
+
+// ─── デバッグテーブル ───────────────────────────────────────────────────────────
+if show_debug
+    var table t = table.new(position.bottom_right, 2, 12,
+                             bgcolor     = color.new(color.black, 70),
+                             border_color = color.gray, border_width = 1,
+                             frame_color  = color.gray, frame_width  = 1)
+
+    color regime_col = regime == "TREND"    ? color.green :
+         regime == "REVERSAL" ? color.red   :
+         regime == "BREAKOUT" ? color.blue  :
+         color.gray
+
+    table.cell(t, 0,  0, "REGIME",         text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  0, regime + " " + direction,
+                                            text_color=regime_col,   bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  1, "1H ADX",         text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  1, str.tostring(h1_adx, "#.#"),
+                                            text_color=color.yellow, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  2, "15M ADX",        text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  2, str.tostring(m15_adx, "#.#"),
+                                            text_color=color.yellow, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  3, "ATR ratio",      text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  3, str.tostring(m15_atr_ratio, "#.##") + "x",
+                                            text_color=color.yellow, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  4, "RSI",            text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  4, str.tostring(rsi_value, "#.#"),
+                                            text_color=color.yellow, bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  5, "CHoCH",          text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  5, str.tostring(choch_confirmed),
+                                            text_color=choch_confirmed ? color.lime : color.gray,
+                                            bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  6, "FVG hit/align",  text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  6, str.tostring(fvg_hit) + "/" + str.tostring(fvg_aligned),
+                                            text_color=fvg_aligned ? color.lime : fvg_hit ? color.yellow : color.gray,
+                                            bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  7, "Zone hit/align", text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  7, str.tostring(zone_hit) + "/" + str.tostring(zone_aligned),
+                                            text_color=zone_aligned ? color.lime : zone_hit ? color.yellow : color.gray,
+                                            bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  8, "Sweep",          text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  8, str.tostring(sweep_detected),
+                                            text_color=sweep_detected ? color.lime : color.gray,
+                                            bgcolor=color.new(color.black, 70))
+    table.cell(t, 0,  9, "Candle",         text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1,  9, candle_pattern,
+                                            text_color=candle_pattern != "none" ? color.lime : color.gray,
+                                            bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 10, "Session",        text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 10, session,
+                                            text_color=session == "london_ny" ? color.lime :
+                                                 session == "off"       ? color.gray  : color.yellow,
+                                            bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 11, "Alert firing",   text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 11, str.tostring(should_alert),
+                                            text_color=should_alert ? color.lime : color.gray,
+                                            bgcolor=color.new(color.black, 70))
