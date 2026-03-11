@@ -271,11 +271,11 @@ if _ss > 0
 
 bool zone_hit     = zone_hit_dem or zone_hit_sup
 bool zone_aligned = direction == "buy"  ? zone_hit_dem :
-                    direction == "sell" ? zone_hit_sup : false
+     direction == "sell" ? zone_hit_sup : false
 
 // ─── RSI方向確認 ──────────────────────────────────────────────────────────────
 bool rsi_trend_aligned = direction == "buy"  ? rsi_value > 50 :
-                         direction == "sell" ? rsi_value < 50 : false
+     direction == "sell" ? rsi_value < 50 : false
 
 // ─── セッション判定（UTC基準） ─────────────────────────────────────────────────
 // london_ny: 13:00-17:00 UTC  / london: 08:00-13:00 UTC
