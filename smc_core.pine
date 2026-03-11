@@ -64,28 +64,30 @@ if fvg_show and bear_fvg_exists
     array.push(bear_fvg_mid,   (low[2] + high[0]) / 2.0)
 
 // 強気FVG：更新 or 無効化（close <= mid で50%以上埋まり → 削除）
-if array.size(bull_fvg_boxes) > 0
-    for i = array.size(bull_fvg_boxes) - 1 to 0 by -1
-        b   = array.get(bull_fvg_boxes, i)
-        mid = array.get(bull_fvg_mid,   i)
-        if close <= mid
-            box.delete(b)
-            array.remove(bull_fvg_boxes, i)
-            array.remove(bull_fvg_mid,   i)
-        else
-            box.set_right(b, bar_index + 50)
+int _bfi = array.size(bull_fvg_boxes) - 1
+while _bfi >= 0
+    b   = array.get(bull_fvg_boxes, _bfi)
+    mid = array.get(bull_fvg_mid,   _bfi)
+    if close <= mid
+        box.delete(b)
+        array.remove(bull_fvg_boxes, _bfi)
+        array.remove(bull_fvg_mid,   _bfi)
+    else
+        box.set_right(b, bar_index + 50)
+    _bfi -= 1
 
 // 弱気FVG：更新 or 無効化（close >= mid で50%以上埋まり → 削除）
-if array.size(bear_fvg_boxes) > 0
-    for i = array.size(bear_fvg_boxes) - 1 to 0 by -1
-        b   = array.get(bear_fvg_boxes, i)
-        mid = array.get(bear_fvg_mid,   i)
-        if close >= mid
-            box.delete(b)
-            array.remove(bear_fvg_boxes, i)
-            array.remove(bear_fvg_mid,   i)
-        else
-            box.set_right(b, bar_index + 50)
+int _bbi = array.size(bear_fvg_boxes) - 1
+while _bbi >= 0
+    b   = array.get(bear_fvg_boxes, _bbi)
+    mid = array.get(bear_fvg_mid,   _bbi)
+    if close >= mid
+        box.delete(b)
+        array.remove(bear_fvg_boxes, _bbi)
+        array.remove(bear_fvg_mid,   _bbi)
+    else
+        box.set_right(b, bar_index + 50)
+    _bbi -= 1
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ③ Zone（需給ゾーン）
@@ -133,89 +135,93 @@ if is_bullish
 
 // ─── 需要ゾーン候補を処理 ──────────────────────────────────────────────────────
 // 候補バーのlowから現在highまでの上昇が zone_impulse_mult × 候補ATR 以上 → 確定
-if array.size(dem_cand_bar) > 0
-    for i = array.size(dem_cand_bar) - 1 to 0 by -1
-        cand_bi   = array.get(dem_cand_bar,  i)
-        cand_low  = array.get(dem_cand_low,  i)
-        cand_high = array.get(dem_cand_high, i)
-        cand_atr  = array.get(dem_cand_atr,  i)
-        if bar_index - cand_bi > zone_impulse_bars
-            // zone_impulse_bars以内にインパルスが来なかった → 候補破棄
-            array.remove(dem_cand_bar,  i)
-            array.remove(dem_cand_low,  i)
-            array.remove(dem_cand_high, i)
-            array.remove(dem_cand_atr,  i)
-        else if (high - cand_low) >= cand_atr * zone_impulse_mult
-            // 上昇インパルス確認 → 需要ゾーン確定
-            if zone_show
-                b   = box.new(cand_bi, cand_high, bar_index, cand_low, border_color=color.new(color.blue, 70), bgcolor=color.new(color.blue, 85))
-                lbl = label.new(cand_bi, cand_low, "D", color=color.new(color.blue, 50), textcolor=color.white, style=label.style_label_up, size=size.small)
-                array.push(dem_boxes,  b)
-                array.push(dem_lows,   cand_low)
-                array.push(dem_labels, lbl)
-            array.remove(dem_cand_bar,  i)
-            array.remove(dem_cand_low,  i)
-            array.remove(dem_cand_high, i)
-            array.remove(dem_cand_atr,  i)
+int _di = array.size(dem_cand_bar) - 1
+while _di >= 0
+    cand_bi   = array.get(dem_cand_bar,  _di)
+    cand_low  = array.get(dem_cand_low,  _di)
+    cand_high = array.get(dem_cand_high, _di)
+    cand_atr  = array.get(dem_cand_atr,  _di)
+    if bar_index - cand_bi > zone_impulse_bars
+        // zone_impulse_bars以内にインパルスが来なかった → 候補破棄
+        array.remove(dem_cand_bar,  _di)
+        array.remove(dem_cand_low,  _di)
+        array.remove(dem_cand_high, _di)
+        array.remove(dem_cand_atr,  _di)
+    else if (high - cand_low) >= cand_atr * zone_impulse_mult
+        // 上昇インパルス確認 → 需要ゾーン確定
+        if zone_show
+            b   = box.new(cand_bi, cand_high, bar_index, cand_low, border_color=color.new(color.blue, 70), bgcolor=color.new(color.blue, 85))
+            lbl = label.new(cand_bi, cand_low, "D", color=color.new(color.blue, 50), textcolor=color.white, style=label.style_label_up, size=size.small)
+            array.push(dem_boxes,  b)
+            array.push(dem_lows,   cand_low)
+            array.push(dem_labels, lbl)
+        array.remove(dem_cand_bar,  _di)
+        array.remove(dem_cand_low,  _di)
+        array.remove(dem_cand_high, _di)
+        array.remove(dem_cand_atr,  _di)
+    _di -= 1
 
 // ─── 供給ゾーン候補を処理 ──────────────────────────────────────────────────────
 // 候補バーのhighから現在lowまでの下落が zone_impulse_mult × 候補ATR 以上 → 確定
-if array.size(sup_cand_bar) > 0
-    for i = array.size(sup_cand_bar) - 1 to 0 by -1
-        cand_bi   = array.get(sup_cand_bar,  i)
-        cand_low  = array.get(sup_cand_low,  i)
-        cand_high = array.get(sup_cand_high, i)
-        cand_atr  = array.get(sup_cand_atr,  i)
-        if bar_index - cand_bi > zone_impulse_bars
-            // 候補破棄
-            array.remove(sup_cand_bar,  i)
-            array.remove(sup_cand_low,  i)
-            array.remove(sup_cand_high, i)
-            array.remove(sup_cand_atr,  i)
-        else if (cand_high - low) >= cand_atr * zone_impulse_mult
-            // 下落インパルス確認 → 供給ゾーン確定
-            if zone_show
-                b   = box.new(cand_bi, cand_high, bar_index, cand_low, border_color=color.new(color.orange, 70), bgcolor=color.new(color.orange, 85))
-                lbl = label.new(cand_bi, cand_high, "S", color=color.new(color.orange, 50), textcolor=color.white, style=label.style_label_down, size=size.small)
-                array.push(sup_boxes,  b)
-                array.push(sup_highs,  cand_high)
-                array.push(sup_labels, lbl)
-            array.remove(sup_cand_bar,  i)
-            array.remove(sup_cand_low,  i)
-            array.remove(sup_cand_high, i)
-            array.remove(sup_cand_atr,  i)
+int _si = array.size(sup_cand_bar) - 1
+while _si >= 0
+    cand_bi   = array.get(sup_cand_bar,  _si)
+    cand_low  = array.get(sup_cand_low,  _si)
+    cand_high = array.get(sup_cand_high, _si)
+    cand_atr  = array.get(sup_cand_atr,  _si)
+    if bar_index - cand_bi > zone_impulse_bars
+        // 候補破棄
+        array.remove(sup_cand_bar,  _si)
+        array.remove(sup_cand_low,  _si)
+        array.remove(sup_cand_high, _si)
+        array.remove(sup_cand_atr,  _si)
+    else if (cand_high - low) >= cand_atr * zone_impulse_mult
+        // 下落インパルス確認 → 供給ゾーン確定
+        if zone_show
+            b   = box.new(cand_bi, cand_high, bar_index, cand_low, border_color=color.new(color.orange, 70), bgcolor=color.new(color.orange, 85))
+            lbl = label.new(cand_bi, cand_high, "S", color=color.new(color.orange, 50), textcolor=color.white, style=label.style_label_down, size=size.small)
+            array.push(sup_boxes,  b)
+            array.push(sup_highs,  cand_high)
+            array.push(sup_labels, lbl)
+        array.remove(sup_cand_bar,  _si)
+        array.remove(sup_cand_low,  _si)
+        array.remove(sup_cand_high, _si)
+        array.remove(sup_cand_atr,  _si)
+    _si -= 1
 
 // ─── 確定済み需要ゾーン：右端延長 & 無効化チェック ────────────────────────────
 // 無効化：zone底をclose確定で下抜けたとき（ヒゲ抜けでは無効化しない）
-if array.size(dem_boxes) > 0
-    for i = array.size(dem_boxes) - 1 to 0 by -1
-        b        = array.get(dem_boxes,  i)
-        zone_low = array.get(dem_lows,   i)
-        lbl      = array.get(dem_labels, i)
-        if close < zone_low
-            box.delete(b)
-            label.delete(lbl)
-            array.remove(dem_boxes,  i)
-            array.remove(dem_lows,   i)
-            array.remove(dem_labels, i)
-        else
-            box.set_right(b, bar_index)
+int _dbi = array.size(dem_boxes) - 1
+while _dbi >= 0
+    b        = array.get(dem_boxes,  _dbi)
+    zone_low = array.get(dem_lows,   _dbi)
+    lbl      = array.get(dem_labels, _dbi)
+    if close < zone_low
+        box.delete(b)
+        label.delete(lbl)
+        array.remove(dem_boxes,  _dbi)
+        array.remove(dem_lows,   _dbi)
+        array.remove(dem_labels, _dbi)
+    else
+        box.set_right(b, bar_index)
+    _dbi -= 1
 
 // ─── 確定済み供給ゾーン：右端延長 & 無効化チェック ────────────────────────────
 // 無効化：zone天井をclose確定で上抜けたとき（ヒゲ抜けでは無効化しない）
-if array.size(sup_boxes) > 0
-    for i = array.size(sup_boxes) - 1 to 0 by -1
-        b         = array.get(sup_boxes,  i)
-        zone_high = array.get(sup_highs,  i)
-        lbl       = array.get(sup_labels, i)
-        if close > zone_high
-            box.delete(b)
-            label.delete(lbl)
-            array.remove(sup_boxes,  i)
-            array.remove(sup_highs,  i)
-            array.remove(sup_labels, i)
-        else
-            box.set_right(b, bar_index)
+int _sbi = array.size(sup_boxes) - 1
+while _sbi >= 0
+    b         = array.get(sup_boxes,  _sbi)
+    zone_high = array.get(sup_highs,  _sbi)
+    lbl       = array.get(sup_labels, _sbi)
+    if close > zone_high
+        box.delete(b)
+        label.delete(lbl)
+        array.remove(sup_boxes,  _sbi)
+        array.remove(sup_highs,  _sbi)
+        array.remove(sup_labels, _sbi)
+    else
+        box.set_right(b, bar_index)
+    _sbi -= 1
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // デバッグテーブル
