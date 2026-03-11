@@ -17,6 +17,7 @@ zone_impulse_mult = input.float(3.5, "インパルス判定ATR倍率",    minval
 zone_max_age      = input.int(200,   "Zone最大有効バー数",       minval=50,  maxval=1000)
 rsi_period        = input.int(14,    "RSI期間",                 minval=5,  maxval=30)
 sweep_atr_mult    = input.float(0.2, "スイープ貫通量(ATR倍率)", minval=0.1, maxval=1.0, step=0.1)
+cooldown_bars     = input.int(3,     "アラートクールダウン（バー数）", minval=1, maxval=10)
 show_debug        = input.bool(true, "デバッグテーブル表示")
 
 // ─── Manual ADX（DMIベース） ──────────────────────────────────────────────────
@@ -329,11 +330,21 @@ bool rsi_divergence = false
 bool news_nearby = false
 
 // ─── アラート発火条件 ──────────────────────────────────────────────────────────
-// RANGE かつ direction == "none" のときは発火しない
-bool should_alert = regime != "RANGE" and direction != "none"
+// 必須ゲート定義:
+//   TREND:    CHoCH確認 AND (Zone or FVG ヒット)
+//   REVERSAL: スイープ確認 AND CHoCH確認
+//   BREAKOUT: Zone or FVG でのリテスト確認
+var int last_alert_bar = na
+bool cooldown_ok  = na(last_alert_bar) or (bar_index - last_alert_bar) > cooldown_bars
+bool should_alert = cooldown_ok and (
+     (regime == "TREND"     and choch_confirmed and (fvg_aligned or zone_aligned)) or
+     (regime == "REVERSAL"  and sweep_detected  and choch_confirmed)                or
+     (regime == "BREAKOUT"  and (fvg_aligned or zone_aligned))
+     )
 
 // ─── アラートJSON構築・送信 ────────────────────────────────────────────────────
 if barstate.isconfirmed and should_alert
+    last_alert_bar := bar_index
     ts = str.format_time(time_close, "yyyy-MM-dd'T'HH:mm:ss'Z'", "UTC")
     json = "{"                                                                    +
            '"symbol":"'           + syminfo.ticker                    + '",'     +
