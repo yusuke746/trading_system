@@ -354,6 +354,7 @@ if barstate.isconfirmed and should_alert
            '"timestamp":"'        + ts                                + '",'     +
            '"price":'             + str.tostring(close,         "#.##") + ","    +
            '"atr":'               + str.tostring(m15_atr,       "#.##") + ","    +
+           '"atr5":'              + str.tostring(atr5,          "#.##") + ","    +
            '"regime":"'           + regime                            + '",'     +
            '"direction":"'        + direction                         + '",'     +
            '"h1_direction":"'     + h1_direction                      + '",'     +
