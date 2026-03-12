@@ -37,13 +37,14 @@ logger = logging.getLogger("app")
 # ── 内部モジュール ────────────────────────────────────────────
 from database          import init_db
 from validation        import validate_and_normalize
-from signal_collector  import SignalCollector
+# from signal_collector  import SignalCollector   # 旧パイプライン（v4.0では未使用）
+# from batch_processor   import BatchProcessor    # 旧パイプライン（v4.0では未使用）
 from wait_buffer       import WaitBuffer
 from position_manager  import PositionManager
 from loss_analyzer     import LossAnalyzer
 from health_monitor    import HealthMonitor, init_mt5
 from revaluator        import Revaluator
-from batch_processor   import BatchProcessor
+from executor          import execute_order
 from dashboard         import dashboard_bp
 from logger_module     import log_event
 from config            import SYSTEM_CONFIG
@@ -53,8 +54,8 @@ FLASK_PORT = int(os.getenv("FLASK_PORT", 80))
 # ── グローバルコンポーネント ───────────────────────────────────
 app             = Flask(__name__)
 position_manager: PositionManager = None
-batch_processor:  BatchProcessor  = None
-collector:        SignalCollector  = None
+batch_processor = None   # 旧パイプライン（v4.0では未使用）
+collector       = None   # 旧パイプライン（v4.0では未使用）
 
 app.register_blueprint(dashboard_bp)
 
@@ -62,18 +63,79 @@ app.register_blueprint(dashboard_bp)
 # ─────────────────────────── Webhook受信 ──────────────────────
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    """TradingViewアラートのWebhook受信エンドポイント"""
+    """TradingViewアラートのWebhook受信エンドポイント（v4.0 新アーキテクチャ）"""
     try:
-        raw = request.get_json(force=True, silent=True)
-        if raw is None:
+        alert = request.get_json(force=True, silent=True)
+        if alert is None:
             return jsonify({"error": "JSON parse error"}), 400
 
-        signal = validate_and_normalize(raw)
-        if signal is None:
-            return jsonify({"error": "invalid signal"}), 400
+        # 必須フィールドの存在確認（最低限）
+        required = {"regime", "direction", "price", "atr5"}
+        missing  = required - set(alert.keys())
+        if missing:
+            logger.warning("必須フィールド欠損: %s", missing)
+            return jsonify({"error": f"missing fields: {missing}"}), 400
 
-        collector.receive(signal)
-        return jsonify({"status": "ok"}), 200
+        # スコアリング（LLM不使用・ルールベース）
+        from scoring_engine import calculate_score
+        result = calculate_score(alert)
+        decision = result["decision"]
+
+        logger.info(
+            "📊 scoring: regime=%s dir=%s decision=%s score=%.3f",
+            alert.get("regime"), alert.get("direction"),
+            decision, result["score"],
+        )
+
+        # DBにアラートを記録
+        log_event(
+            "alert_received",
+            f"regime={alert.get('regime')} dir={alert.get('direction')} "
+            f"decision={decision} score={result['score']:.3f}",
+        )
+
+        if decision == "approve":
+            # 高インパクト時間帯チェック
+            from risk_manager import is_high_impact_period
+            if is_high_impact_period():
+                logger.info("🚫 高インパクト時間帯のため執行スキップ")
+                log_event("execution_blocked", "high_impact_period")
+                return jsonify({"status": "blocked", "reason": "high_impact_period"}), 200
+
+            # execute_order 用の trigger / ai_result を構築
+            trigger = {
+                "symbol":    alert.get("symbol", "XAUUSD"),
+                "price":     float(alert.get("price", 0)),
+                "direction": alert.get("direction", ""),  # "buy" / "sell"
+            }
+            ai_result = {
+                "decision":     "approve",
+                "score":        result["score"],
+                "order_type":   "market",
+                "limit_price":  None,
+                "limit_expiry": None,
+            }
+
+            exec_result = execute_order(
+                trigger          = trigger,
+                ai_result        = ai_result,
+                ai_decision_id   = None,
+                position_manager = position_manager,
+            )
+            logger.info("🚀 執行結果: success=%s ticket=%s",
+                        exec_result.get("success"), exec_result.get("ticket"))
+            return jsonify({"status": "approved", "exec": exec_result}), 200
+
+        elif decision == "wait":
+            logger.info("⏳ wait: score=%.3f", result["score"])
+            return jsonify({"status": "wait", "score": result["score"]}), 200
+
+        else:  # reject
+            logger.info("❌ reject: reasons=%s", result.get("reject_reasons"))
+            return jsonify({
+                "status":  "rejected",
+                "reasons": result.get("reject_reasons"),
+            }), 200
 
     except Exception as e:
         logger.error("Webhook例外: %s", e, exc_info=True)
@@ -128,13 +190,13 @@ def startup():
         position_manager = position_manager,
     )
 
-    batch_processor = BatchProcessor(
-        wait_buffer      = wait_buffer_obj,
-        revaluator       = revaluator_obj,
-        position_manager = position_manager,
-    )
-
-    collector = SignalCollector(on_batch_ready=batch_processor.process)
+    # ── 以下は旧パイプライン（v3.5以前）。v4.0では未使用。削除せずコメントアウト。
+    # batch_processor = BatchProcessor(
+    #     wait_buffer      = wait_buffer_obj,
+    #     revaluator       = revaluator_obj,
+    #     position_manager = position_manager,
+    # )
+    # collector = SignalCollector(on_batch_ready=batch_processor.process)
 
     # 4. バックグラウンドスレッド起動
     logger.info("[4/5] バックグラウンドスレッド起動...")
