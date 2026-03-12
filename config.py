@@ -13,8 +13,8 @@ SYSTEM_CONFIG = {
     # ── リスク管理 ───────────────────────────────
     "risk_percent":         2.0,
     # GOLD 5200ドル水準でATR15m≈ 8〜15ドル。SL=ATR×2.0で15〜20ドルの雑音耐性を確保
-    "atr_sl_multiplier":    2.0,
-    "atr_tp_multiplier":    3.0,   # RR=1.5維持
+    "atr_sl_multiplier":    2.7,   # Optuna最適化 P2 (2026-03-12) PF1.435  旧: 2.0
+    "atr_tp_multiplier":    6.0,   # Optuna最適化 P2 (2026-03-12) PF1.435  旧: 3.0
     "max_sl_pips":          80.0,  # dollar単位
     "min_sl_pips":          8.0,   # dollar単位
     "pip_points":           10,    # GOLD: 1pip = 10point = $0.10
@@ -68,11 +68,11 @@ SYSTEM_CONFIG = {
     "news_filter_fail_safe":    True,  # True=取得失敗時はエントリーブロック / False=許可（安全側をデフォルト）
     # ── ポジション管理 v2追加 ──────────────────
     "partial_close_ratio":      0.5,   # 第1TPで50%決済
-    "partial_tp_atr_mult":      2.5,   # SL乗数に合わせて設定
-    "be_trigger_atr_mult":      1.5,   # BE発動 = ATR×1.5含み益
+    "partial_tp_atr_mult":      3.6,   # Optuna最適化 P2 (2026-03-12) PF1.435  旧: 2.5
+    "be_trigger_atr_mult":      1.8,   # Optuna最適化 P2 (2026-03-12) PF1.435  旧: 1.5
     # "be_buffer_pips":         2.0,   # 旧: Forex pips 単位（XAUUSD では不適切）→ be_buffer_atr_mult に移行
     "be_buffer_atr_mult":       0.15,  # BEバッファ = ATR×0.15（dollar価格単位）
-    "trailing_step_atr_mult":   2.0,   # トレーリング幅（ATR基準）
+    "trailing_step_atr_mult":   1.2,   # Optuna最適化 P2 (2026-03-12) PF1.435  旧: 2.0
     "pm_check_interval_sec":    10,
 
     # ── 逆張り自動昇格設定 ────────────────────────
