@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 PARTIAL_CLOSE_RATIO    = SYSTEM_CONFIG["partial_close_ratio"]
 PARTIAL_TP_ATR_MULT    = SYSTEM_CONFIG["partial_tp_atr_mult"]
 BE_TRIGGER_ATR_MULT    = SYSTEM_CONFIG["be_trigger_atr_mult"]
-BE_BUFFER_PIPS         = SYSTEM_CONFIG["be_buffer_pips"]
+# BE_BUFFER_PIPS       = SYSTEM_CONFIG["be_buffer_pips"]   # 旧: Forex pips単位（不適切）→ be_buffer_atr_mult に移行
+BE_BUFFER_ATR_MULT     = SYSTEM_CONFIG.get("be_buffer_atr_mult", 0.15)  # BEバッファ = ATR × 0.15
 TRAILING_STEP_ATR_MULT = SYSTEM_CONFIG["trailing_step_atr_mult"]
 PM_CHECK_INTERVAL_SEC  = SYSTEM_CONFIG["pm_check_interval_sec"]
 SYMBOL                 = SYSTEM_CONFIG["symbol"]
@@ -166,8 +167,9 @@ class PositionManager:
         return "ok"
 
     def _apply_be(self, pos: ManagedPosition):
-        """SLをエントリー価格+2pipsに移動"""
-        buffer = BE_BUFFER_PIPS * 0.1  # pips → dollar
+        """SLをエントリー価格 + ATR×0.15 に移動（BEバッファ）"""
+        # pos.atr_pips は dollar価格単位（executor.py の atr_dollar を格納）
+        buffer = round(pos.atr_pips * BE_BUFFER_ATR_MULT, 3)
         if pos.direction == "buy":
             new_sl = round(pos.entry_price + buffer, 3)
         else:
@@ -178,8 +180,8 @@ class PositionManager:
             pos.be_applied = True
             pos.sl_price   = new_sl
             log_event("pm_be_applied",
-                      f"ticket={pos.ticket} new_sl={new_sl}")
-            logger.info("🔒 BE移動: ticket=%d sl→%.3f", pos.ticket, new_sl)
+                      f"ticket={pos.ticket} new_sl={new_sl} buffer={buffer:.3f}")
+            logger.info("🔒 BE移動: ticket=%d sl→%.3f (buffer=%.3f)", pos.ticket, new_sl, buffer)
 
     def _partial_close(self, pos: ManagedPosition, current_price: float):
         """50%を成行決済"""
