@@ -82,9 +82,10 @@ trend_align = (h1_direction == "bull" and close > m15_ema) or
               (h1_direction == "bear" and close < m15_ema)
 is_trend    = m15_adx >= adx_trend_min and h1_trend_valid and trend_align
 
-string regime = is_reversal ? "REVERSAL" :
+// 優先順位変更: v4.1 TREND(1位) > BREAKOUT(2位) > REVERSAL(3位) > RANGE(4位)
+string regime = is_trend    ? "TREND"    :
      is_breakout  ? "BREAKOUT" :
-     is_trend     ? "TREND"    : "RANGE"
+     is_reversal  ? "REVERSAL" : "RANGE"
 
 string rev_direction   = h1_direction == "bull" ? "sell" : "buy"
 string bo_direction    = close > range_high ? "buy" :

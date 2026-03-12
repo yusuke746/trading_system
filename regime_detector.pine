@@ -89,14 +89,14 @@ trend_align = (h1_direction == "bull" and close > m15_ema) or
               (h1_direction == "bear" and close < m15_ema)
 is_trend    = m15_adx >= adx_trend_min and h1_trend_valid and trend_align
 
-// 4位: RANGE（上記どれにも該当しない）
+// 優先順位変更: v4.1 TREND(1位) > BREAKOUT(2位) > REVERSAL(3位) > RANGE(4位)
 string new_regime = "RANGE"
-if is_reversal
-    new_regime := "REVERSAL"
+if is_trend
+    new_regime := "TREND"
 else if is_breakout
     new_regime := "BREAKOUT"
-else if is_trend
-    new_regime := "TREND"
+else if is_reversal
+    new_regime := "REVERSAL"
 
 // ─── 方向決定 ─────────────────────────────────────────────────────────────────
 // REVERSAL: 1H方向の逆（トレンド転換を狙う）

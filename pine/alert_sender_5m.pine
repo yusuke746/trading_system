@@ -73,7 +73,7 @@ f_m15() =>
     _trend_align = (h1_direction == "bull" and close > _ema) or
          (h1_direction == "bear" and close < _ema)
     _is_trend = _adx >= adx_trend_min and h1_trend_valid and _trend_align
-    _regime_int = _is_rev ? 2 : _is_bo ? 3 : _is_trend ? 1 : 0
+    _regime_int = _is_trend ? 1 : _is_bo ? 3 : _is_rev ? 2 : 0  // 優先順位変更: v4.1 TREND(1位) > BREAKOUT(2位) > REVERSAL(3位) > RANGE(4位)
     _rev_dir   = h1_direction == "bull" ? 2 : 1
     _bo_dir    = close > _range_high ? 1 : close < _range_low ? 2 : 0
     _trend_dir = h1_direction == "bull" and close > _ema ? 1 :
