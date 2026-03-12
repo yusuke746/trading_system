@@ -615,10 +615,12 @@ def _simulate_trade(
         # STEP1: ブレークイーブン（含み益 ATR×be_trigger_mult 到達時）
         if not be_applied:
             if direction == "buy" and high >= entry + atr * be_trigger_mult:
-                sl = entry + params.get("be_buffer_pips", 2.0)
+                be_buffer = atr * params.get("be_buffer_atr_mult", 0.15)
+                sl = entry + be_buffer
                 be_applied = True
             elif direction == "sell" and low <= entry - atr * be_trigger_mult:
-                sl = entry - params.get("be_buffer_pips", 2.0)
+                be_buffer = atr * params.get("be_buffer_atr_mult", 0.15)
+                sl = entry - be_buffer
                 be_applied = True
 
         # STEP2: 部分決済（含み益 ATR×partial_tp_mult 到達時、partial_ratio%確定）
@@ -743,7 +745,7 @@ class LiveBacktestEngine:
             "slippage_dollar":       0.10,
             # ポジション管理
             "be_trigger_atr_mult":   SYSTEM_CONFIG["be_trigger_atr_mult"],
-            "be_buffer_pips":        SYSTEM_CONFIG["be_buffer_pips"],
+            "be_buffer_atr_mult":    SYSTEM_CONFIG["be_buffer_atr_mult"],
             "partial_tp_atr_mult":   SYSTEM_CONFIG["partial_tp_atr_mult"],
             "partial_close_ratio":   SYSTEM_CONFIG["partial_close_ratio"],
             "trailing_step_atr_mult": SYSTEM_CONFIG["trailing_step_atr_mult"],
@@ -811,7 +813,9 @@ class LiveBacktestEngine:
             )
 
             # スコアリング（ライブと同一コード）
-            result = calculate_score(structured, direction, q_trend_available=q_trend_avail)
+            from ai_judge import _structured_to_alert_dict
+            flat_alert = _structured_to_alert_dict(structured, direction)
+            result = calculate_score(flat_alert)
             decision = result["decision"]
             score    = result["score"]
 
