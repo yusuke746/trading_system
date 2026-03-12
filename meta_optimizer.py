@@ -25,23 +25,24 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # ── チューニング可能パラメータのホワイトリスト（min, max）──────────
-# approve_threshold / wait_threshold は別ガードで管理
+# approve_threshold / wait_threshold は別ガードで管理（MAX_THRESHOLD_CHANGE=0.03）
+#
+# チューニング対象外とした理由:
+#   adx_reversal_penalty, session_tokyo, session_off, news_nearby, atr_ratio_high
+#     → ペナルティ（負値）のため Optuna による自動調整の対象外。手動で調整する。
+#   session_london, session_ny, atr_ratio_normal
+#     → 加点が小さくチューニング効果が低いため除外。
 TUNABLE_PARAMS = {
-    "zone_touch_aligned":            (0.10, 0.35),
-    "zone_touch_aligned_with_trend": (0.10, 0.35),
-    "zone_touch_counter_trend":      (0.03, 0.15),
-    "fvg_touch_aligned":             (0.08, 0.25),
-    "fvg_touch_aligned_with_trend":  (0.08, 0.25),
-    "fvg_touch_counter_trend":       (0.03, 0.12),
-    "liquidity_sweep":               (0.15, 0.40),
-    "sweep_plus_zone":               (0.05, 0.20),
-    "trend_aligned":                 (0.05, 0.20),
-    "rsi_confirmation":              (0.02, 0.12),
-    "bar_close_confirmed":           (0.05, 0.20),
-    "tv_confidence_high":            (0.05, 0.20),
-    "pattern_similarity_high":       (0.05, 0.20),
-    "approve_threshold":             (0.35, 0.60),  # 別ガードあり
-    "wait_threshold":                (0.05, 0.20),  # 別ガードあり
+    # ── スコアテーブル（チューニング対象）──────────────────────
+    "choch_strong":           (0.10, 0.35),   # 現在値 0.20
+    "rsi_divergence":         (0.05, 0.30),   # 現在値 0.15
+    "fvg_and_zone_overlap":   (0.05, 0.30),   # 現在値 0.15
+    "adx_normal":             (0.05, 0.20),   # 現在値 0.10
+    "h1_direction_aligned":   (0.05, 0.20),   # 現在値 0.10
+    "session_london_ny":      (0.05, 0.20),   # 現在値 0.10
+    # ── 判定閾値（別ガードで ±0.03 制限あり）──────────────────
+    "approve_threshold":      (0.15, 0.40),   # 現在値 0.25（旧 0.35〜0.60 から変更）
+    "wait_threshold":         (0.00, 0.15),   # 現在値 0.00
 }
 THRESHOLD_PARAMS = {"approve_threshold", "wait_threshold"}
 MAX_CHANGE = 0.05       # 通常パラメータの最大変更幅
