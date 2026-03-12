@@ -107,6 +107,7 @@ def webhook():
                 "symbol":    alert.get("symbol", "XAUUSD"),
                 "price":     float(alert.get("price", 0)),
                 "direction": alert.get("direction", ""),  # "buy" / "sell"
+                "atr5":      float(alert.get("atr5", 0)), # SL用ATR（5M）
             }
             ai_result = {
                 "decision":     "approve",

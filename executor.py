@@ -169,7 +169,8 @@ def _get_setup_type(ai_result: dict) -> str:
 
 
 def build_order_params(trigger: dict, ai_result: dict,
-                        ai_decision_id: int = None) -> dict:
+                        ai_decision_id: int = None,
+                        atr_override: float | None = None) -> dict | None:
     """
     ATRベースでSL/TP・ロットサイズを計算して注文パラメータを返す。
     ATR乗数は param_optimizer.get_live_params() により動的に調整される。
@@ -178,6 +179,12 @@ def build_order_params(trigger: dict, ai_result: dict,
     symbol    = trigger.get("symbol", SYMBOL)
     direction = trigger.get("direction", "buy")
     price     = trigger.get("price", 0.0)
+
+    # trigger に atr5 があればそれを atr_override として使用
+    _atr5 = trigger.get("atr5", None)
+    if _atr5 is not None:
+        _atr5 = float(_atr5)
+        atr_override = _atr5 if _atr5 > 0 else None
 
     order_type = ai_result.get("order_type", "market")
 
@@ -208,23 +215,34 @@ def build_order_params(trigger: dict, ai_result: dict,
         session_name, dyn_sl_mult, dyn_tp_mult,
     )
 
-    # _get_atr15m は MT5から取得したATRをdollar価格単位で返す
-    # 例: GOLD 15m ATR = 3.5（価格が平均3.5ドル動く）
-    atr_dollar = _get_atr15m(symbol)
+    # SL用ATR: atr5（atr_override）があればそれを使う、なければ15M ATR
+    if atr_override is not None and atr_override > 0:
+        sl_atr = atr_override
+        logger.info("📐 SL用ATR override 使用: atr5=%.3f", sl_atr)
+    else:
+        sl_atr = _get_atr15m(symbol)
 
-    # ATRボラティリティフィルター（異常ボラ・値動きなし を排除）
+    # TP用ATR: 常に15M ATR（利幅は15Mの値動き幅を基準にする）
+    tp_atr = _get_atr15m(symbol)
+    if tp_atr is None or tp_atr <= 0:
+        tp_atr = sl_atr
+
+    # ATRボラティリティフィルター（sl_atr に対して適用）
     atr_max = SYSTEM_CONFIG.get("atr_volatility_max", 30.0)
-    atr_min = SYSTEM_CONFIG.get("atr_volatility_min", 3.0)
-    if atr_dollar > atr_max:
+    if atr_override is not None and atr_override > 0:
+        atr_min = SYSTEM_CONFIG.get("atr5_volatility_min", 1.5)  # atr5用閾値
+    else:
+        atr_min = SYSTEM_CONFIG.get("atr_volatility_min", 3.0)   # 15M用閾値（従来）
+    if sl_atr > atr_max:
         logger.warning(
-            "ATRボラ過多フィルター: atr=%.2f > max=%.1f → エントリー却下",
-            atr_dollar, atr_max,
+            "ATRボラ過多フィルター: sl_atr=%.2f > max=%.1f → エントリー却下",
+            sl_atr, atr_max,
         )
         return None
-    if atr_dollar < atr_min:
+    if sl_atr < atr_min:
         logger.warning(
-            "ATRボラ不足フィルター: atr=%.2f < min=%.1f → エントリー却下",
-            atr_dollar, atr_min,
+            "ATRボラ不足フィルター: sl_atr=%.2f < min=%.1f → エントリー却下",
+            sl_atr, atr_min,
         )
         return None
 
@@ -232,7 +250,7 @@ def build_order_params(trigger: dict, ai_result: dict,
     setup = _get_setup_type(ai_result)
     if setup == "sweep_reversal":
         # TODO: sweep_priceフィールド追加後にSLをATR×0.8から変更すること（仮実装）
-        sl_mult = max(dyn_sl_mult * 0.8, SYSTEM_CONFIG.get("min_sl_pips", 5) / atr_dollar)
+        sl_mult = max(dyn_sl_mult * 0.8, SYSTEM_CONFIG.get("min_sl_pips", 5) / sl_atr)
         tp_mult = dyn_tp_mult * 1.3
     elif setup == "trend_continuation":
         sl_mult = dyn_sl_mult
@@ -245,7 +263,7 @@ def build_order_params(trigger: dict, ai_result: dict,
 
     # SL距離計算（dollar価格単位）
     # MIN_SL_PIPS / MAX_SL_PIPS もdollar価格単位として流用（5.0〜50.0ドル上限）
-    sl_dollar = round(atr_dollar * sl_mult, 3)
+    sl_dollar = round(sl_atr * sl_mult, 3)
     sl_dollar = max(MIN_SL_PIPS, min(MAX_SL_PIPS, sl_dollar))
 
     # ロットサイズ計算
@@ -298,10 +316,10 @@ def build_order_params(trigger: dict, ai_result: dict,
     # 価格計算（ATRはdollar価格単位なのでそのまま引き算）
     if direction == "buy":
         sl_price = round(price - sl_dollar, 3)
-        tp_price = round(price + atr_dollar * tp_mult, 3)
+        tp_price = round(price + tp_atr * tp_mult, 3)
     else:
         sl_price = round(price + sl_dollar, 3)
-        tp_price = round(price - atr_dollar * tp_mult, 3)
+        tp_price = round(price - tp_atr * tp_mult, 3)
 
     limit_price   = ai_result.get("limit_price")
     limit_expiry  = ai_result.get("limit_expiry")
@@ -315,7 +333,7 @@ def build_order_params(trigger: dict, ai_result: dict,
         "sl_price":        sl_price,
         "tp_price":        tp_price,
         "sl_dollar":       sl_dollar,    # dollar価格単位（旧sl_pips）
-        "atr_dollar":      atr_dollar,   # dollar価格単位（旧atr_pips）
+        "atr_dollar":      tp_atr,       # 15M ATR dollar価格単位（旧atr_pips / position_manager用）
         "atr_sl_mult":     sl_mult,       # 動的調整後のSL乗数（記録用）
         "atr_tp_mult":     tp_mult,       # 動的調整後のTP乗数（記録用）
         "limit_expiry":    limit_expiry,

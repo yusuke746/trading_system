@@ -20,7 +20,8 @@ SYSTEM_CONFIG = {
     "pip_points":           10,    # GOLD: 1pip = 10point = $0.10
     # ATRボラティリティフィルター（異常値でエントリー禁止）
     "atr_volatility_max":   50.0,  # 50ドル超: 指標直後の異常スパイクのみ排除（旧30.0は5200水準基準で現価格帯に不適）
-    "atr_volatility_min":   3.0,   # 3ドル未満: 値動きなし（スプレッド費用対効果悪化）
+    "atr_volatility_min":   3.0,   # 3ドル未満: 値動きなし（スプレッド費用対効果悪化）※15M ATR用
+    "atr5_volatility_min":  1.5,   # 5M ATR（atr5）用の下限（15M より小さい値動きを許容）
     # 追加リスク管理（risk_manager.py）
     # 1日の確定損失上限: 口座残高に対するパーセンテージ（負値）
     # risk_percent=2.0%なら細4負け相当で停止。一般的なリスク管理基準（5%）に準拠。
@@ -69,7 +70,8 @@ SYSTEM_CONFIG = {
     "partial_close_ratio":      0.5,   # 第1TPで50%決済
     "partial_tp_atr_mult":      2.5,   # SL乗数に合わせて設定
     "be_trigger_atr_mult":      1.5,   # BE発動 = ATR×1.5含み益
-    "be_buffer_pips":           2.0,   # BEの予裕幅
+    # "be_buffer_pips":         2.0,   # 旧: Forex pips 単位（XAUUSD では不適切）→ be_buffer_atr_mult に移行
+    "be_buffer_atr_mult":       0.15,  # BEバッファ = ATR×0.15（dollar価格単位）
     "trailing_step_atr_mult":   2.0,   # トレーリング幅（ATR基準）
     "pm_check_interval_sec":    10,
 
