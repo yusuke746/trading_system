@@ -47,6 +47,7 @@ class ManagedPosition:
     execution_id:     int
     entered_at:       datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     tp_price:         float    = 0.0
+    regime:           str      = "TREND"  # TREND / REVERSAL / BREAKOUT
     be_applied:       bool     = False
     partial_closed:   bool     = False
     trailing_active:  bool     = False
@@ -81,7 +82,8 @@ class PositionManager:
                            entry_price: float, lot_size: float,
                            sl_price: float, atr_pips: float,
                            execution_id: int,
-                           tp_price: float = 0.0):
+                           tp_price: float = 0.0,
+                           regime: str = "TREND"):
         """新規ポジションを登録する"""
         with self._lock:
             pos = ManagedPosition(
@@ -93,6 +95,7 @@ class PositionManager:
                 tp_price     = tp_price,
                 atr_pips     = atr_pips,
                 execution_id = execution_id,
+                regime       = regime,
             )
             self._positions[ticket] = pos
             logger.info(

@@ -506,6 +506,7 @@ def execute_order(trigger: dict, ai_result: dict,
 
     # 5. ポジション管理に登録（v2）
     if success and position_manager is not None:
+        regime = trigger.get("regime") or ai_result.get("regime", "TREND")
         position_manager.register_position(
             ticket=ticket,
             direction=params["direction"],
@@ -515,6 +516,7 @@ def execute_order(trigger: dict, ai_result: dict,
             tp_price=params["tp_price"],     # TP保持用（BE/トレーリング時に消えないよう）
             atr_pips=params["atr_dollar"],   # dollar価格単位（position_managerで流用）
             execution_id=exec_id,
+            regime=regime,
         )
 
     return {
