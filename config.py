@@ -121,91 +121,94 @@ SESSION_SLTP_ADJUST = {
     "Off_hours":  {"sl_mult": 0.75, "tp_mult": 0.75},
 }
 
-# ── スコアリングエンジン設定（v3.0）──────────────────────
+# ── スコアリングエンジン設定 ──────────────────────────────────
 # scoring_engine.py が参照する閾値と加減点ルール。
 # バックテストで最適化可能にするため全て外出し。
 SCORING_CONFIG = {
-    # 判定閾値
-    "approve_threshold":    0.45,
-    "wait_threshold":       0.10,
+    # ── 旧パラメータ (scoring_engine v3.5 以前 / 現在未使用) ─────────────────
+    # backtester.py / meta_optimizer.py が参照している可能性があるためコメントアウトで保持。
+    # 削除が必要になった場合は参照側モジュールとセットで対応すること。
+    #
+    # --- 判定閾値 (旧) ---
+    # "approve_threshold":              0.45,   # → v4.0 で 0.25 に変更
+    # "wait_threshold":                 0.10,   # → v4.0 で 0.00 に変更
+    #
+    # --- レジーム別基礎点 ---
+    # "regime_trend_base":              0.15,
+    # "regime_breakout_base":           0.20,
+    # "regime_range_base":             -0.10,
+    #
+    # --- ゾーン・構造要素 ---
+    # "zone_touch_aligned":             0.20,
+    # "zone_touch_aligned_with_trend":  0.20,
+    # "zone_touch_counter_trend":       0.08,
+    # "fvg_touch_aligned":              0.15,
+    # "fvg_touch_aligned_with_trend":   0.15,
+    # "fvg_touch_counter_trend":        0.06,
+    # "liquidity_sweep":                0.25,
+    # "sweep_plus_zone":                0.10,
+    #
+    # --- モメンタム ---
+    # "trend_aligned":                  0.10,
+    # "rsi_confirmation":               0.05,
+    # "rsi_divergence":                -0.20,  # 旧: buy+RSIoverbought → 減点
+    #                                           # → v4.0 で意味が変わり +0.15 に変更
+    #
+    # --- シグナル品質 ---
+    # "bar_close_confirmed":            0.10,
+    # "session_london_ny":              0.05,   # → v4.0 で 0.10 に変更
+    # "session_tokyo":                 -0.05,   # → v4.0 で -0.10 に変更
+    # "session_off_hours":             -0.15,   # → v4.0 で session_off(-0.20) に統合
+    #
+    # --- 危険パターン（即reject）---
+    # "range_mid_chase":               -999,
+    # "data_insufficient":             -999,
+    # "counter_trend_no_sweep":        -0.30,
+    #
+    # --- TradingView 品質 ---
+    # "tv_confidence_high":             0.10,
+    # "tv_confidence_low":             -0.10,
+    # "pattern_similarity_high":        0.10,
+    # "pattern_similarity_low":        -0.10,
+    # "pattern_similarity_none":        0.00,
 
-    # レジーム別基礎点
-    "regime_trend_base":      0.15,
-    "regime_breakout_base":   0.20,
-    "regime_range_base":     -0.10,
+    # ── 新スコアテーブル (scoring_engine v4.0 / マルチレジーム対応) ───────────
+    # Pine Script フラット JSON を直接受け取る新アーキテクチャ用パラメータ。
 
-    # ゾーン・構造要素
-    "zone_touch_aligned":             0.20,
-    "zone_touch_aligned_with_trend":  0.20,
-    "zone_touch_counter_trend":       0.08,
-    "fvg_touch_aligned":              0.15,
-    "fvg_touch_aligned_with_trend":   0.15,
-    "fvg_touch_counter_trend":        0.06,
-    "liquidity_sweep":        0.25,
-    "sweep_plus_zone":        0.10,
+    # --- 判定閾値 ---
+    "approve_threshold":      0.25,   # 新テーブル向け確定値（旧 0.45 から変更）
+    "wait_threshold":         0.00,   # 新テーブル向け確定値（旧 0.10 から変更）
 
-    # モメンタム
-    "trend_aligned":          0.10,
-    "rsi_confirmation":       0.05,
-    "rsi_divergence":        -0.20,
-
-    # シグナル品質
-    "bar_close_confirmed":    0.10,
-    "session_london_ny":      0.05,
-    "session_tokyo":         -0.05,
-    "session_off_hours":     -0.15,
-
-    # 危険パターン（即reject）
-    "range_mid_chase":       -999,
-    "data_insufficient":     -999,
-    "counter_trend_no_sweep": -0.30,
-
-    # TradingView品質
-    "tv_confidence_high":     0.10,
-    "tv_confidence_low":     -0.10,
-    # pattern_similarity: Lorentzian v2の新フィールド（avg_distanceの反転正規化）
-    # デモ蓄積後に閾値を調整すること。現時点は保守的設定。
-    "pattern_similarity_high":  0.10,   # similarity > 0.70: 過去に類似パターンあり → 加点
-    "pattern_similarity_low":  -0.10,   # similarity < 0.30: 類似パターン希薄 → 減点
-    "pattern_similarity_none":  0.00,   # similarity = None（旧バージョン互換）: 加減点なし
-
-    # ── v4.0 新アーキテクチャ（Pine Script 直接 JSON）スコアテーブル ────────────
-    # scoring_engine.py v4.0 が参照するパラメータ。
-    # 旧パラメータは後方互換のため残す。
-
-    # 判定閾値（v4.0 用に上書き）
-    "approve_threshold":      0.25,   # v3.0: 0.45 → v4.0: 0.25（フラット JSON の点数分布に合わせて調整）
-    "wait_threshold":         0.00,   # v3.0: 0.10 → v4.0: 0.00
-
-    # CHoCH 確認（強い構造転換）
+    # --- CHoCH 確認（強い構造転換）---
     "choch_strong":           0.20,   # choch_confirmed == true
 
-    # RSI ダイバージェンス
-    "rsi_divergence":         0.15,   # rsi_divergence == true（価格とRSIの逆行確認）
+    # --- RSI ダイバージェンス ---
+    "rsi_divergence":         0.15,   # rsi_divergence == true（価格と RSI の逆行確認）
+                                      # ※旧 -0.20（buy+RSI overbought 減点）とは意味が異なる
 
-    # FVG × Zone の重複ヒットボーナス
+    # --- FVG × Zone の重複ヒットボーナス ---
     "fvg_and_zone_overlap":   0.15,   # fvg_aligned == true AND zone_aligned == true
 
-    # 15M ADX 強度
+    # --- 15M ADX 強度 ---
     "adx_normal":             0.10,   # m15_adx 25〜35（健全なトレンド強度）
-    "adx_reversal_penalty":  -0.10,   # REVERSAL かつ m15_adx > 35（ADX 過熱でREVERSAL 信頼性低下）
+    "adx_reversal_penalty":  -0.10,   # REVERSAL かつ m15_adx > 35（ADX 過熱で REVERSAL 信頼性低下）
 
-    # 1H 方向一致
+    # --- 1H 方向一致 ---
     "h1_direction_aligned":   0.10,   # h1_direction == "bull" and direction == "buy"
                                       # h1_direction == "bear" and direction == "sell"
 
-    # セッション別（v4.0 で london/ny/off を追加）
+    # --- セッション別 ---
     "session_london_ny":      0.10,   # London/NY オーバーラップ（最高流動性）
     "session_london":         0.05,   # London オープン
     "session_ny":             0.00,   # NY セッション（加減点なし）
     "session_tokyo":         -0.10,   # Tokyo セッション（低流動性）
     "session_off":           -0.20,   # オフアワーズ（最低流動性）
 
-    # ATR ratio（15M ATR / ATR MA20）
+    # --- ATR ratio（15M ATR / ATR MA20）---
     "atr_ratio_normal":       0.05,   # 0.8〜1.5 倍（正常ボラティリティ）
     "atr_ratio_high":        -0.05,   # 1.5 倍超（ボラティリティ過熱）
 
-    # ニュースフィルター
+    # --- ニュースフィルター ---
     "news_nearby":           -0.30,   # 高インパクトニュース 30 分前後
 }
 
