@@ -122,6 +122,7 @@ class LiveBacktestResult:
     approved_count: int = 0
     rejected_count: int = 0
     waited_count:   int = 0
+    gate_report:    dict = None   # ゲート通過率レポート（各段階のカウント）
 
     @property
     def completed_trades(self) -> list:
@@ -834,6 +835,15 @@ class LiveBacktestEngine:
         rejected_count = 0
         waited_count   = 0
 
+        # ゲート通過率計測カウンタ
+        g1_fail    = 0   # Gate1: h1_adx < 25
+        g2_fail    = 0   # Gate2: regime=RANGE
+        g3_fail    = 0   # Gate3: CHoCH/FVG/Zone/sweep 未充足
+        score_fail = 0   # ゲート通過後にスコア閾値未達（reject）
+        wait_count = 0   # ゲート通過後にwait（approve未満）
+        # Gate3サブ内訳
+        g3_detail: dict[str, int] = {}
+
         sl_mult = params["atr_sl_multiplier"]
         tp_mult = params["atr_tp_multiplier"]
         spread  = params["spread_dollar"]
@@ -875,6 +885,25 @@ class LiveBacktestEngine:
             result = calculate_score(flat_alert)
             decision = result["decision"]
             score    = result["score"]
+            reasons  = result.get("reject_reasons", [])
+
+            # ── ゲート通過率カウント（閾値上書き前に分類）──
+            _gate_classified = False
+            for _r in reasons:
+                if _r.startswith("Gate1"):
+                    g1_fail += 1
+                    _gate_classified = True
+                elif _r.startswith("Gate2"):
+                    g2_fail += 1
+                    _gate_classified = True
+                elif _r.startswith("Gate3"):
+                    g3_fail += 1
+                    g3_detail[_r] = g3_detail.get(_r, 0) + 1
+                    _gate_classified = True
+                elif "スコア不足" in _r:
+                    score_fail += 1
+                    _gate_classified = True
+            # ゲートも落ちていないがwait判定の場合はwait_countで捕捉（後段）
 
             # 閾値上書き
             approve_thr = params.get("approve_threshold")
@@ -886,12 +915,16 @@ class LiveBacktestEngine:
                     decision = "wait"
                 else:
                     decision = "reject"
+                    if not _gate_classified:
+                        score_fail += 1
 
             if decision == "reject":
                 rejected_count += 1
                 continue
             if decision == "wait":
                 waited_count += 1
+                if not _gate_classified:
+                    wait_count += 1
                 continue
 
             approved_count += 1
@@ -960,6 +993,16 @@ class LiveBacktestEngine:
             approved_count = approved_count,
             rejected_count = rejected_count,
             waited_count   = waited_count,
+            gate_report    = {
+                "total":      alert_count,
+                "g1_fail":    g1_fail,
+                "g2_fail":    g2_fail,
+                "g3_fail":    g3_fail,
+                "g3_detail":  g3_detail,
+                "score_fail": score_fail,
+                "wait":       wait_count,
+                "approved":   approved_count,
+            },
         )
 
     def _get_structure_window(self, ts: pd.Timestamp) -> list:
@@ -1130,6 +1173,24 @@ def main():
     engine = LiveBacktestEngine(alerts, ohlcv, params)
     result = engine.run()
     print(result.summary())
+
+    # ── ゲート通過率レポート ──────────────────────────────
+    gr = result.gate_report or {}
+    total = gr.get("total", 0)
+    def _pct(n): return f"{n/total*100:.1f}%" if total > 0 else "N/A"
+    print("\n=== ゲート通過率レポート ===")
+    print(f"総アラート数         : {total:3d}件 (100.0%)")
+    print(f"Gate1落ち(h1_adx)    : {gr.get('g1_fail',0):3d}件 ({_pct(gr.get('g1_fail',0))})  ← h1_adx < 25")
+    print(f"Gate2落ち(RANGE)     : {gr.get('g2_fail',0):3d}件 ({_pct(gr.get('g2_fail',0))})  ← regime=RANGE")
+    print(f"Gate3落ち(構造)      : {gr.get('g3_fail',0):3d}件 ({_pct(gr.get('g3_fail',0))})  ← CHoCH/FVG/Zone未充足")
+    from config import SCORING_CONFIG as _SC
+    print(f"スコア閾値未達(reject): {gr.get('score_fail',0):3d}件 ({_pct(gr.get('score_fail',0))})  ← ゲート通過後に{_SC['approve_threshold']}未満")
+    print(f"wait(approve未満)    : {gr.get('wait',0):3d}件 ({_pct(gr.get('wait',0))})  ← wait判定")
+    print(f"最終承認             : {gr.get('approved',0):3d}件 ({_pct(gr.get('approved',0))})  ← エントリー")
+    if gr.get("g3_detail"):
+        print("\n  Gate3 サブ内訳:")
+        for k, v in sorted(gr["g3_detail"].items(), key=lambda x: -x[1]):
+            print(f"    {k}: {v}件")
 
     # CSVエクスポート
     if args.output:
