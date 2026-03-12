@@ -92,6 +92,9 @@ class LiveBacktestTrade:
     atr:             float
     sl_dollar:       float
 
+    # レジーム
+    regime:          str = "TREND"   # TREND / REVERSAL / BREAKOUT
+
     # scoring結果
     score:           float = 0.0
     score_breakdown: dict = field(default_factory=dict)
@@ -589,6 +592,7 @@ def _simulate_trade(
     tp           = trade.tp_price
     entry        = trade.entry_price
     lot          = trade.lot_size
+    regime       = getattr(trade, 'regime', 'TREND')
     partial_pnl  = 0.0
     remaining    = lot
 
@@ -606,103 +610,156 @@ def _simulate_trade(
         high = float(bar["high"])
         low  = float(bar["low"])
 
-        # 最高値/最安値追跡
-        if direction == "buy":
-            max_price = max(max_price, high)
+        if regime in ('REVERSAL', 'BREAKOUT'):
+            # ─── REVERSAL / BREAKOUT: 固定TP・固定SL のみ ───────────────────
+            # BE / 部分決済 / トレーリングは行わない
+            if direction == 'buy':
+                if low <= sl:
+                    exit_price = sl
+                    trade.exit_price     = exit_price
+                    trade.outcome        = "sl_hit"
+                    trade.pnl            = (exit_price - entry) * remaining
+                    trade.pnl_pips       = exit_price - entry
+                    trade.duration_bars  = i + 1
+                    trade.be_applied     = False
+                    trade.partial_closed = False
+                    trade.partial_pnl    = 0.0
+                    return trade
+                if high >= tp:
+                    exit_price = tp
+                    trade.exit_price     = exit_price
+                    trade.outcome        = "tp_hit"
+                    trade.pnl            = (exit_price - entry) * remaining
+                    trade.pnl_pips       = exit_price - entry
+                    trade.duration_bars  = i + 1
+                    trade.be_applied     = False
+                    trade.partial_closed = False
+                    trade.partial_pnl    = 0.0
+                    return trade
+            else:  # sell
+                if high >= sl:
+                    exit_price = sl
+                    trade.exit_price     = exit_price
+                    trade.outcome        = "sl_hit"
+                    trade.pnl            = (entry - exit_price) * remaining
+                    trade.pnl_pips       = entry - exit_price
+                    trade.duration_bars  = i + 1
+                    trade.be_applied     = False
+                    trade.partial_closed = False
+                    trade.partial_pnl    = 0.0
+                    return trade
+                if low <= tp:
+                    exit_price = tp
+                    trade.exit_price     = exit_price
+                    trade.outcome        = "tp_hit"
+                    trade.pnl            = (entry - exit_price) * remaining
+                    trade.pnl_pips       = entry - exit_price
+                    trade.duration_bars  = i + 1
+                    trade.be_applied     = False
+                    trade.partial_closed = False
+                    trade.partial_pnl    = 0.0
+                    return trade
+
         else:
-            max_price = min(max_price, low)
+            # ─── TREND: 現行ロジック（BE + 部分決済 + トレーリング）─────────
 
-        # STEP1: ブレークイーブン（含み益 ATR×be_trigger_mult 到達時）
-        if not be_applied:
-            if direction == "buy" and high >= entry + atr * be_trigger_mult:
-                be_buffer = atr * params.get("be_buffer_atr_mult", 0.15)
-                sl = entry + be_buffer
-                be_applied = True
-            elif direction == "sell" and low <= entry - atr * be_trigger_mult:
-                be_buffer = atr * params.get("be_buffer_atr_mult", 0.15)
-                sl = entry - be_buffer
-                be_applied = True
-
-        # STEP2: 部分決済（含み益 ATR×partial_tp_mult 到達時、partial_ratio%確定）
-        if not partial_closed:
-            partial_hit = (
-                (direction == "buy"  and high >= entry + atr * partial_tp_mult) or
-                (direction == "sell" and low  <= entry - atr * partial_tp_mult)
-            )
-            if partial_hit:
-                partial_units = lot * partial_ratio
-                remaining     = lot * (1 - partial_ratio)
-                partial_exit  = entry + atr * partial_tp_mult if direction == "buy" \
-                                else entry - atr * partial_tp_mult
-                partial_pnl   = (partial_exit - entry) * partial_units if direction == "buy" \
-                                else (entry - partial_exit) * partial_units
-                partial_closed  = True
-                trailing_active = True
-
-        # STEP3: トレーリングストップ更新
-        if trailing_active:
+            # 最高値/最安値追跡
             if direction == "buy":
-                trail_sl = max_price - atr * trailing_mult
-                sl = max(sl, trail_sl)
+                max_price = max(max_price, high)
             else:
-                trail_sl = max_price + atr * trailing_mult
-                sl = min(sl, trail_sl)
+                max_price = min(max_price, low)
 
-        # SL判定 (buy)
-        if direction == "buy" and low <= sl:
-            exit_price = sl
-            pnl = (exit_price - entry) * remaining
-            trade.exit_price    = exit_price
-            trade.outcome       = "trailing_sl" if trailing_active else "sl_hit"
-            trade.pnl           = pnl
-            trade.pnl_pips      = exit_price - entry
-            trade.duration_bars = i + 1
-            trade.be_applied    = be_applied
-            trade.partial_closed = partial_closed
-            trade.partial_pnl   = partial_pnl
-            return trade
+            # STEP1: ブレークイーブン（含み益 ATR×be_trigger_mult 到達時）
+            if not be_applied:
+                if direction == "buy" and high >= entry + atr * be_trigger_mult:
+                    be_buffer = atr * params.get("be_buffer_atr_mult", 0.15)
+                    sl = entry + be_buffer
+                    be_applied = True
+                elif direction == "sell" and low <= entry - atr * be_trigger_mult:
+                    be_buffer = atr * params.get("be_buffer_atr_mult", 0.15)
+                    sl = entry - be_buffer
+                    be_applied = True
 
-        # SL判定 (sell)
-        if direction == "sell" and high >= sl:
-            exit_price = sl
-            pnl = (entry - exit_price) * remaining
-            trade.exit_price    = exit_price
-            trade.outcome       = "trailing_sl" if trailing_active else "sl_hit"
-            trade.pnl           = pnl
-            trade.pnl_pips      = entry - exit_price
-            trade.duration_bars = i + 1
-            trade.be_applied    = be_applied
-            trade.partial_closed = partial_closed
-            trade.partial_pnl   = partial_pnl
-            return trade
+            # STEP2: 部分決済（含み益 ATR×partial_tp_mult 到達時、partial_ratio%確定）
+            if not partial_closed:
+                partial_hit = (
+                    (direction == "buy"  and high >= entry + atr * partial_tp_mult) or
+                    (direction == "sell" and low  <= entry - atr * partial_tp_mult)
+                )
+                if partial_hit:
+                    partial_units = lot * partial_ratio
+                    remaining     = lot * (1 - partial_ratio)
+                    partial_exit  = entry + atr * partial_tp_mult if direction == "buy" \
+                                    else entry - atr * partial_tp_mult
+                    partial_pnl   = (partial_exit - entry) * partial_units if direction == "buy" \
+                                    else (entry - partial_exit) * partial_units
+                    partial_closed  = True
+                    trailing_active = True
 
-        # TP判定 (buy)
-        if direction == "buy" and high >= tp:
-            exit_price = tp
-            pnl = (exit_price - entry) * remaining
-            trade.exit_price    = exit_price
-            trade.outcome       = "tp_hit"
-            trade.pnl           = pnl
-            trade.pnl_pips      = exit_price - entry
-            trade.duration_bars = i + 1
-            trade.be_applied    = be_applied
-            trade.partial_closed = partial_closed
-            trade.partial_pnl   = partial_pnl
-            return trade
+            # STEP3: トレーリングストップ更新
+            if trailing_active:
+                if direction == "buy":
+                    trail_sl = max_price - atr * trailing_mult
+                    sl = max(sl, trail_sl)
+                else:
+                    trail_sl = max_price + atr * trailing_mult
+                    sl = min(sl, trail_sl)
 
-        # TP判定 (sell)
-        if direction == "sell" and low <= tp:
-            exit_price = tp
-            pnl = (entry - exit_price) * remaining
-            trade.exit_price    = exit_price
-            trade.outcome       = "tp_hit"
-            trade.pnl           = pnl
-            trade.pnl_pips      = entry - exit_price
-            trade.duration_bars = i + 1
-            trade.be_applied    = be_applied
-            trade.partial_closed = partial_closed
-            trade.partial_pnl   = partial_pnl
-            return trade
+            # SL判定 (buy)
+            if direction == "buy" and low <= sl:
+                exit_price = sl
+                pnl = (exit_price - entry) * remaining
+                trade.exit_price     = exit_price
+                trade.outcome        = "trailing_sl" if trailing_active else "sl_hit"
+                trade.pnl            = pnl
+                trade.pnl_pips       = exit_price - entry
+                trade.duration_bars  = i + 1
+                trade.be_applied     = be_applied
+                trade.partial_closed = partial_closed
+                trade.partial_pnl    = partial_pnl
+                return trade
+
+            # SL判定 (sell)
+            if direction == "sell" and high >= sl:
+                exit_price = sl
+                pnl = (entry - exit_price) * remaining
+                trade.exit_price     = exit_price
+                trade.outcome        = "trailing_sl" if trailing_active else "sl_hit"
+                trade.pnl            = pnl
+                trade.pnl_pips       = entry - exit_price
+                trade.duration_bars  = i + 1
+                trade.be_applied     = be_applied
+                trade.partial_closed = partial_closed
+                trade.partial_pnl    = partial_pnl
+                return trade
+
+            # TP判定 (buy)
+            if direction == "buy" and high >= tp:
+                exit_price = tp
+                pnl = (exit_price - entry) * remaining
+                trade.exit_price     = exit_price
+                trade.outcome        = "tp_hit"
+                trade.pnl            = pnl
+                trade.pnl_pips       = exit_price - entry
+                trade.duration_bars  = i + 1
+                trade.be_applied     = be_applied
+                trade.partial_closed = partial_closed
+                trade.partial_pnl    = partial_pnl
+                return trade
+
+            # TP判定 (sell)
+            if direction == "sell" and low <= tp:
+                exit_price = tp
+                pnl = (entry - exit_price) * remaining
+                trade.exit_price     = exit_price
+                trade.outcome        = "tp_hit"
+                trade.pnl            = pnl
+                trade.pnl_pips       = entry - exit_price
+                trade.duration_bars  = i + 1
+                trade.be_applied     = be_applied
+                trade.partial_closed = partial_closed
+                trade.partial_pnl    = partial_pnl
+                return trade
 
     # 未決済（データ終端）
     trade.outcome        = "open"
@@ -865,6 +922,12 @@ class LiveBacktestEngine:
             risk_dollar = balance * (params["risk_percent"] / 100)
             lot_size    = risk_dollar / (sl_dist + 1e-10)
 
+            # レジーム取得（structured から uppercase で統一）
+            regime_map = {"trend": "TREND", "breakout": "BREAKOUT",
+                          "reversal": "REVERSAL", "range": "RANGE"}
+            regime_raw = structured.get("regime", {}).get("classification", "trend")
+            trade_regime = regime_map.get(regime_raw, "TREND")
+
             trade = LiveBacktestTrade(
                 alert_time      = str(ts),
                 direction       = direction,
@@ -874,6 +937,7 @@ class LiveBacktestEngine:
                 lot_size        = lot_size,
                 atr             = atr14,
                 sl_dollar       = sl_dist,
+                regime          = trade_regime,
                 score           = score,
                 score_breakdown = result.get("score_breakdown", {}),
                 decision        = decision,
@@ -1073,6 +1137,7 @@ def main():
         for t in result.trades:
             rows.append({
                 "alert_time":    t.alert_time,
+                "regime":        t.regime,
                 "direction":     t.direction,
                 "entry_price":   t.entry_price,
                 "sl_price":      t.sl_price,
