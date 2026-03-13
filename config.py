@@ -212,6 +212,11 @@ SCORING_CONFIG = {
 
     # --- ニュースフィルター ---
     "news_nearby":           -0.30,   # 高インパクトニュース 30 分前後
+
+    # --- BOS・Order Block（P3追加）---
+    "bos_confirmed":          0.20,   # BOS確認後プルバックでのエントリー
+    "ob_aligned":             0.20,   # OBヒット（方向一致）
+    "ob_and_fvg":             0.10,   # OB+FVG重複ボーナス
 }
 
 # ── 高インパクト経済指標スケジュール（UTC）──────────────────
