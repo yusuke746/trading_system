@@ -71,10 +71,10 @@ f_m15() =>
     _range_low  = ta.lowest(low[1],   range_lookback)
     _adx_avg_lb = ta.sma(_adx, range_lookback)
     _is_rev = _adx >= adx_trend_min and _adx < (_adx_avg5 - adx_reversal_drop)
-    _is_bo  = _atr > _atr_ma20 * atr_breakout_mult
-         and _adx_avg_lb < adx_range_max and _adx >= adx_range_max
-    _trend_align = (h1_direction == "bull" and close > _ema)
-         or (h1_direction == "bear" and close < _ema)
+    _is_bo  = (_atr > _atr_ma20 * atr_breakout_mult
+         and _adx_avg_lb < adx_range_max and _adx >= adx_range_max)
+    _trend_align = ((h1_direction == "bull" and close > _ema)
+         or (h1_direction == "bear" and close < _ema))
     _is_trend = _adx >= adx_trend_min and h1_trend_valid and _trend_align
     _regime_int = _is_trend ? 1 : _is_bo ? 3 : _is_rev ? 2 : 0  // 優先順位変更: v4.1 TREND(1位) > BREAKOUT(2位) > REVERSAL(3位) > RANGE(4位)
     _rev_dir   = h1_direction == "bull" ? 2 : 1
@@ -127,16 +127,8 @@ if bearish_choch
 // ─── BOS（Break of Structure）────────────────────────────────────────────────
 // TRENDレジームでのトレンド継続確認
 // CHoCHとは別変数。エントリートリガーではなくフラグ管理に使用する
-bullish_bos = regime == "TREND"
-              and not na(last_swing_high)
-              and close > last_swing_high
-              and close[1] <= last_swing_high
-              and h1_direction == "bull"
-bearish_bos = regime == "TREND"
-              and not na(last_swing_low)
-              and close < last_swing_low
-              and close[1] >= last_swing_low
-              and h1_direction == "bear"
+bullish_bos = regime == "TREND" and not na(last_swing_high) and close > last_swing_high and close[1] <= last_swing_high and h1_direction == "bull"
+bearish_bos = regime == "TREND" and not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low  and h1_direction == "bear"
 
 // BOS Pending管理（プルバック待ちフラグ）
 // bos_pendingがtrueの間だけOBヒットをエントリー条件として有効化する
@@ -156,12 +148,12 @@ if bearish_bos
     last_swing_low   := na   // 重複BOS防止
 
 // タイムアウト: bos_timeout_bars本以内にプルバックなければキャンセル
-if bos_pending_bull and not na(bos_bar_bull)
-   and (bar_index - bos_bar_bull) > bos_timeout_bars
+if (bos_pending_bull and not na(bos_bar_bull)
+   and (bar_index - bos_bar_bull) > bos_timeout_bars)
     bos_pending_bull := false
     bos_bar_bull     := na
-if bos_pending_bear and not na(bos_bar_bear)
-   and (bar_index - bos_bar_bear) > bos_timeout_bars
+if (bos_pending_bear and not na(bos_bar_bear)
+   and (bar_index - bos_bar_bear) > bos_timeout_bars)
     bos_pending_bear := false
     bos_bar_bear     := na
 
@@ -205,21 +197,21 @@ while _bear_obi >= 0
 bool ob_hit_bull = false
 if array.size(bull_ob_lo) > 0
     for i = 0 to array.size(bull_ob_lo) - 1
-        if close >= array.get(bull_ob_lo, i)
-           and close <= array.get(bull_ob_hi, i)
+        if (close >= array.get(bull_ob_lo, i)
+           and close <= array.get(bull_ob_hi, i))
             ob_hit_bull := true
             break
 bool ob_hit_bear = false
 if array.size(bear_ob_lo) > 0
     for i = 0 to array.size(bear_ob_lo) - 1
-        if close >= array.get(bear_ob_lo, i)
-           and close <= array.get(bear_ob_hi, i)
+        if (close >= array.get(bear_ob_lo, i)
+           and close <= array.get(bear_ob_hi, i))
             ob_hit_bear := true
             break
 
 // ob_alignedはbos_pending中かつ方向一致時のみ有効
-bool ob_aligned = (direction == "buy"  and bos_pending_bull and ob_hit_bull)
-                  or (direction == "sell" and bos_pending_bear and ob_hit_bear)
+bool ob_aligned = ((direction == "buy"  and bos_pending_bull and ob_hit_bull)
+                  or (direction == "sell" and bos_pending_bear and ob_hit_bear))
 
 // bos_confirmed: ob_alignedが成立した時点でtrueとしてJSONに渡す
 // （スコアリング側への情報として使用）
@@ -446,22 +438,19 @@ bool cooldown_ok  = na(last_alert_bar) or (bar_index - last_alert_bar) > cooldow
 // TRENDエントリー:
 //   従来通り: choch_confirmed AND (fvg_aligned OR zone_aligned)
 //   新規追加: bos_pending中にプルバックでOB/FVG/Zoneに戻った時
-bool trend_entry_choch = regime == "TREND"
+bool trend_entry_choch = (regime == "TREND"
     and choch_confirmed
-    and (fvg_aligned or zone_aligned)
-bool trend_entry_bos = regime == "TREND"
+    and (fvg_aligned or zone_aligned))
+bool trend_entry_bos = (regime == "TREND"
     and (bos_pending_bull or bos_pending_bear)
-    and (ob_aligned or fvg_aligned or zone_aligned)
+    and (ob_aligned or fvg_aligned or zone_aligned))
 bool trend_entry = trend_entry_choch or trend_entry_bos
 
 // REVERSAL・BREAKOUTは変更なし
-bool reversal_entry  = regime == "REVERSAL"
-    and choch_confirmed and sweep_detected
-bool breakout_entry  = regime == "BREAKOUT"
-    and (fvg_aligned or zone_aligned)
+bool reversal_entry  = regime == "REVERSAL" and choch_confirmed and sweep_detected
+bool breakout_entry  = regime == "BREAKOUT" and (fvg_aligned or zone_aligned)
 
-bool should_alert = cooldown_ok
-    and (trend_entry or reversal_entry or breakout_entry)
+bool should_alert = cooldown_ok and (trend_entry or reversal_entry or breakout_entry)
 
 // BOS経由でエントリーが発火したらpendingをリセット
 if trend_entry_bos
