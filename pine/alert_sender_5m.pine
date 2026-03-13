@@ -18,6 +18,9 @@ zone_max_age      = input.int(200,   "Zone最大有効バー数",       minval=5
 rsi_period        = input.int(14,    "RSI期間",                 minval=5,  maxval=30)
 sweep_atr_mult    = input.float(0.2, "スイープ貫通量(ATR倍率)", minval=0.1, maxval=1.0, step=0.1)
 cooldown_bars     = input.int(2,     "アラートクールダウン（バー数）", minval=1, maxval=10)
+bos_timeout_bars  = input.int(20,    "BOS Timeout Bars（5M換算100分）",
+                               minval=5, maxval=50,
+                               tooltip="BOSからこの本数以内にプルバックがなければキャンセル")
 show_debug        = input.bool(true, "デバッグテーブル表示")
 
 // ─── Manual ADX（DMIベース） ──────────────────────────────────────────────────
@@ -120,6 +123,107 @@ if bullish_choch
     last_swing_high := na
 if bearish_choch
     last_swing_low := na
+
+// ─── BOS（Break of Structure）────────────────────────────────────────────────
+// TRENDレジームでのトレンド継続確認
+// CHoCHとは別変数。エントリートリガーではなくフラグ管理に使用する
+bullish_bos = regime == "TREND" and
+              not na(last_swing_high) and
+              close > last_swing_high and
+              close[1] <= last_swing_high and
+              h1_direction == "bull"
+bearish_bos = regime == "TREND" and
+              not na(last_swing_low) and
+              close < last_swing_low and
+              close[1] >= last_swing_low and
+              h1_direction == "bear"
+
+// BOS Pending管理（プルバック待ちフラグ）
+// bos_pendingがtrueの間だけOBヒットをエントリー条件として有効化する
+var bool bos_pending_bull = false
+var bool bos_pending_bear = false
+var int  bos_bar_bull     = na
+var int  bos_bar_bear     = na
+
+// BOS確認時: pendingフラグをセット
+if bullish_bos
+    bos_pending_bull := true
+    bos_bar_bull     := bar_index
+    last_swing_high  := na   // 重複BOS防止
+if bearish_bos
+    bos_pending_bear := true
+    bos_bar_bear     := bar_index
+    last_swing_low   := na   // 重複BOS防止
+
+// タイムアウト: bos_timeout_bars本以内にプルバックなければキャンセル
+if bos_pending_bull and not na(bos_bar_bull) and
+   (bar_index - bos_bar_bull) > bos_timeout_bars
+    bos_pending_bull := false
+    bos_bar_bull     := na
+if bos_pending_bear and not na(bos_bar_bear) and
+   (bar_index - bos_bar_bear) > bos_timeout_bars
+    bos_pending_bear := false
+    bos_bar_bear     := na
+
+// レジームが変わったらpendingをリセット
+if regime != "TREND"
+    bos_pending_bull := false
+    bos_pending_bear := false
+
+// ─── Order Block（OB）────────────────────────────────────────────────────────
+// Bullish OB: bullish_bos確認時の1本前の陰線キャンドル本体
+// Bearish OB: bearish_bos確認時の1本前の陽線キャンドル本体
+// ※ 登録はBOSバー、エントリー判定は次バー以降（設計上の分離）
+var array<float> bull_ob_lo = array.new<float>()
+var array<float> bull_ob_hi = array.new<float>()
+var array<float> bear_ob_lo = array.new<float>()
+var array<float> bear_ob_hi = array.new<float>()
+
+// OB登録
+if bullish_bos and close[1] < open[1]   // 1本前が陰線
+    array.push(bull_ob_lo, low[1])
+    array.push(bull_ob_hi, high[1])
+if bearish_bos and close[1] > open[1]   // 1本前が陽線
+    array.push(bear_ob_lo, low[1])
+    array.push(bear_ob_hi, high[1])
+
+// OB無効化（closeがOBを完全に割ったら削除）
+int _bull_obi = array.size(bull_ob_lo) - 1
+while _bull_obi >= 0
+    if close < array.get(bull_ob_lo, _bull_obi)
+        array.remove(bull_ob_lo, _bull_obi)
+        array.remove(bull_ob_hi, _bull_obi)
+    _bull_obi -= 1
+int _bear_obi = array.size(bear_ob_lo) - 1
+while _bear_obi >= 0
+    if close > array.get(bear_ob_hi, _bear_obi)
+        array.remove(bear_ob_lo, _bear_obi)
+        array.remove(bear_ob_hi, _bear_obi)
+    _bear_obi -= 1
+
+// OBヒット判定（次バー以降のプルバックで価格がOB内に戻ったか）
+bool ob_hit_bull = false
+if array.size(bull_ob_lo) > 0
+    for i = 0 to array.size(bull_ob_lo) - 1
+        if close >= array.get(bull_ob_lo, i) and
+           close <= array.get(bull_ob_hi, i)
+            ob_hit_bull := true
+            break
+bool ob_hit_bear = false
+if array.size(bear_ob_lo) > 0
+    for i = 0 to array.size(bear_ob_lo) - 1
+        if close >= array.get(bear_ob_lo, i) and
+           close <= array.get(bear_ob_hi, i)
+            ob_hit_bear := true
+            break
+
+// ob_alignedはbos_pending中かつ方向一致時のみ有効
+bool ob_aligned = (direction == "buy"  and bos_pending_bull and ob_hit_bull) or
+                  (direction == "sell" and bos_pending_bear and ob_hit_bear)
+
+// bos_confirmed: ob_alignedが成立した時点でtrueとしてJSONに渡す
+// （スコアリング側への情報として使用）
+bool bos_confirmed = ob_aligned
 
 // ─── FVG（5M、ヒット検出用。ボックス描画なし） ────────────────────────────────
 // Bull FVG: high[2] < low[0]  → ゾーン範囲 [high[2], low[0]]
@@ -338,11 +442,33 @@ bool news_nearby = false
 //   BREAKOUT: Zone or FVG でのリテスト確認
 var int last_alert_bar = na
 bool cooldown_ok  = na(last_alert_bar) or (bar_index - last_alert_bar) > cooldown_bars
-bool should_alert = cooldown_ok and (
-     (regime == "TREND"     and choch_confirmed and (fvg_aligned or zone_aligned)) or
-     (regime == "REVERSAL"  and sweep_detected  and choch_confirmed)                or
-     (regime == "BREAKOUT"  and (fvg_aligned or zone_aligned))
-     )
+
+// TRENDエントリー:
+//   従来通り: choch_confirmed AND (fvg_aligned OR zone_aligned)
+//   新規追加: bos_pending中にプルバックでOB/FVG/Zoneに戻った時
+bool trend_entry_choch = regime == "TREND" and
+    choch_confirmed and
+    (fvg_aligned or zone_aligned)
+bool trend_entry_bos = regime == "TREND" and
+    (bos_pending_bull or bos_pending_bear) and
+    (ob_aligned or fvg_aligned or zone_aligned)
+bool trend_entry = trend_entry_choch or trend_entry_bos
+
+// REVERSAL・BREAKOUTは変更なし
+bool reversal_entry  = regime == "REVERSAL" and
+    choch_confirmed and sweep_detected
+bool breakout_entry  = regime == "BREAKOUT" and
+    (fvg_aligned or zone_aligned)
+
+bool should_alert = cooldown_ok and
+    (trend_entry or reversal_entry or breakout_entry)
+
+// BOS経由でエントリーが発火したらpendingをリセット
+if trend_entry_bos
+    bos_pending_bull := false
+    bos_pending_bear := false
+    bos_bar_bull     := na
+    bos_bar_bear     := na
 
 // ─── アラートJSON構築・送信 ────────────────────────────────────────────────────
 if barstate.isconfirmed and should_alert
@@ -373,7 +499,9 @@ if barstate.isconfirmed and should_alert
            '"session":"'          + session                           + '",'     +
            '"rsi_trend_aligned":' + str.tostring(rsi_trend_aligned)   + ","      +
            '"rsi_value":'         + str.tostring(rsi_value,     "#.#") + ","     +
-           '"news_nearby":'       + str.tostring(news_nearby)         +
+           '"news_nearby":'       + str.tostring(news_nearby)         + ","      +
+           '"bos_confirmed":'     + str.tostring(bos_confirmed)       + ","      +
+           '"ob_aligned":'        + str.tostring(ob_aligned)          +
            "}"
     alert(json, alert.freq_once_per_bar_close)
 

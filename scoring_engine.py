@@ -56,6 +56,7 @@ def calculate_score(alert: dict) -> dict:
     _apply_session_score(alert, _cfg, breakdown)
     _apply_atr_ratio_score(alert, _cfg, breakdown)
     _apply_news_penalty(alert, _cfg, breakdown)
+    _apply_bos_ob_score(alert, _cfg, breakdown)
 
     total_score = round(sum(breakdown.values()), 4)
 
@@ -199,3 +200,15 @@ def _apply_news_penalty(alert: dict, cfg: dict, breakdown: dict) -> None:
     """高インパクトニュース 30 分前後 → 大幅減点"""
     if bool(alert.get("news_nearby", False)):
         breakdown["news_nearby"] = cfg["news_nearby"]
+
+
+def _apply_bos_ob_score(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """BOS確認・OBヒット加点（P3追加）"""
+    if bool(alert.get("bos_confirmed", False)):
+        breakdown["bos_confirmed"] = cfg.get("bos_confirmed", 0.20)
+    if bool(alert.get("ob_aligned", False)):
+        breakdown["ob_aligned"] = cfg.get("ob_aligned", 0.20)
+    # OB+FVG重複ボーナス
+    if bool(alert.get("ob_aligned", False)) and \
+       bool(alert.get("fvg_aligned", False)):
+        breakdown["ob_and_fvg"] = cfg.get("ob_and_fvg", 0.10)
