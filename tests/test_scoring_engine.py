@@ -55,6 +55,8 @@ def _make_alert(
     rsi_value=54.0,
     news_nearby=False,
     candle_pattern="none",
+    bos_confirmed=False,
+    ob_aligned=False,
 ) -> dict:
     """テスト用の Pine Script アラート dict を生成する"""
     return {
@@ -83,6 +85,8 @@ def _make_alert(
         "rsi_trend_aligned": rsi_trend_aligned,
         "rsi_value":        rsi_value,
         "news_nearby":      news_nearby,
+        "bos_confirmed":    bos_confirmed,
+        "ob_aligned":       ob_aligned,
     }
 
 
@@ -151,23 +155,25 @@ class TestTrendRejectH1Adx(unittest.TestCase):
 class TestTrendRejectChoch(unittest.TestCase):
 
     def test_trend_reject_choch_false(self):
-        """TREND: choch_confirmed=false → Gate3(TREND) 不通過で reject"""
+        """TREND: choch_confirmed=false かつBOSパスも未充足 → Gate3(TREND) 不通過で reject
+        (P3変更: CHoCHパスもBOSパスも通らない場合に reject)"""
         alert = _make_alert(choch_confirmed=False, fvg_aligned=True)
         result = calculate_score(alert)
 
         self.assertEqual(result["decision"], "reject")
         self.assertTrue(
-            any("choch_confirmed" in r for r in result["reject_reasons"])
+            any("Gate3(TREND)" in r for r in result["reject_reasons"])
         )
 
     def test_trend_reject_no_fvg_no_zone(self):
-        """TREND: choch=True だが fvg_aligned=False AND zone_aligned=False → reject"""
+        """TREND: choch=True だが fvg/zone=False かつBOSパスも未充足 → reject
+        (P3変更: CHoCHパス=choch+fvg/zone が未充足、BOSパスも未充足で reject)"""
         alert = _make_alert(fvg_aligned=False, zone_aligned=False)
         result = calculate_score(alert)
 
         self.assertEqual(result["decision"], "reject")
         self.assertTrue(
-            any("fvg_aligned" in r for r in result["reject_reasons"])
+            any("Gate3(TREND)" in r for r in result["reject_reasons"])
         )
 
 

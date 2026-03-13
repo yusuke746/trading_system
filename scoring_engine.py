@@ -110,10 +110,16 @@ def _check_gates(alert: dict) -> list[str]:
 
     # レジーム別追加ゲート
     if regime == "TREND":
-        if not choch:
-            reasons.append("Gate3(TREND): choch_confirmed=false")
-        if not (fvg_al or zone_al):
-            reasons.append("Gate3(TREND): fvg_aligned=false AND zone_aligned=false")
+        bos_al    = bool(alert.get("bos_confirmed", False))
+        ob_al     = bool(alert.get("ob_aligned",    False))
+        choch_path = choch and (fvg_al or zone_al)
+        bos_path   = bos_al and ob_al
+        if not choch_path and not bos_path:
+            reasons.append(
+                "Gate3(TREND): "
+                "CHoCHパス(choch+fvg/zone)も"
+                "BOSパス(bos+ob)も未充足"
+            )
 
     elif regime == "REVERSAL":
         if not choch:
