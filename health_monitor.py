@@ -19,6 +19,7 @@ except ImportError:
 
 from config import SYSTEM_CONFIG
 from logger_module import log_event
+import discord_notifier
 
 load_dotenv()
 
@@ -115,6 +116,15 @@ class HealthMonitor:
                 log_event("mt5_disconnected", "MT5接続断検知", level="ERROR")
                 if self._notifier:
                     self._notifier.notify_mt5_disconnected()
+                try:
+                    discord_notifier.notify(
+                        title="🆘 システムアラート",
+                        description="MT5接続断を検知しました。自動再接続を試みます。",
+                        color=0xFF0000,
+                        fields={"状態": "MT5 disconnected"},
+                    )
+                except Exception:
+                    pass
 
             self._is_connected = False
             self._reconnect()
