@@ -103,9 +103,12 @@ def _check_gates(alert: dict) -> list[str]:
     if h1_adx < 25:
         reasons.append(f"Gate1: h1_adx={h1_adx:.1f} < 25")
 
-    # 共通ゲート ②: RANGE は即 reject（以降のレジーム別チェック不要）
+    # 共通ゲート ②: RANGE / REVERSAL は即 reject
     if regime == "RANGE":
         reasons.append("Gate2: regime=RANGE → reject")
+        return reasons
+    if regime == "REVERSAL":
+        reasons.append("Gate2: regime=REVERSAL → reject (廃止レジーム)")
         return reasons
 
     # レジーム別追加ゲート
