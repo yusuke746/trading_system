@@ -185,29 +185,26 @@ class TestReversalApprove(unittest.TestCase):
 
     def test_reversal_approve_sweep_choch_rsi(self):
         """
-        REVERSAL: sweep + choch + rsi_divergence で approve。
-        REVERSAL の direction は h1 と逆 → h1_direction_aligned は付かない。
-        score = choch_strong(0.20) + rsi_divergence(0.15) + session_london_ny(0.10) = 0.45
+        REVERSAL: 廃止レジームのため Gate2 で即 reject される。
+        （旧: sweep + choch + rsi_divergence で approve だったが廃止）
         """
         alert = _make_alert(
             regime="REVERSAL",
-            direction="sell",       # bull トレンドへの逆張り
+            direction="sell",
             h1_direction="bull",
             h1_adx=30.0,
-            m15_adx=28.0,           # adx_normal: +0.10
-            choch_confirmed=True,   # gate pass + choch_strong: +0.20
-            sweep_detected=True,    # gate pass
+            m15_adx=28.0,
+            choch_confirmed=True,
+            sweep_detected=True,
             fvg_aligned=False,
             zone_aligned=False,
-            rsi_divergence=True,    # rsi_divergence: +0.15
-            session="london_ny",    # session_london_ny: +0.10
+            rsi_divergence=True,
+            session="london_ny",
         )
         result = calculate_score(alert)
 
-        self.assertEqual(result["decision"], "approve")
-        self.assertIn("choch_strong",     result["score_breakdown"])
-        self.assertIn("rsi_divergence",   result["score_breakdown"])
-        self.assertGreater(result["score_breakdown"]["rsi_divergence"], 0)
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(any("REVERSAL" in r for r in result["reject_reasons"]))
 
 
 # ──────────────────────────────────────────────────────────
@@ -217,19 +214,19 @@ class TestReversalApprove(unittest.TestCase):
 class TestReversalRejectNoSweep(unittest.TestCase):
 
     def test_reversal_reject_sweep_false(self):
-        """REVERSAL: sweep_detected=false → Gate3(REVERSAL) 不通過で reject"""
+        """REVERSAL: 廃止レジームのため Gate2 で即 reject される"""
         alert = _make_alert(
             regime="REVERSAL",
             direction="sell",
             h1_adx=30.0,
             choch_confirmed=True,
-            sweep_detected=False,   # ← ゲート不通過
+            sweep_detected=False,
         )
         result = calculate_score(alert)
 
         self.assertEqual(result["decision"], "reject")
         self.assertTrue(
-            any("sweep_detected" in r for r in result["reject_reasons"])
+            any("REVERSAL" in r for r in result["reject_reasons"])
         )
 
 
@@ -240,23 +237,20 @@ class TestReversalRejectNoSweep(unittest.TestCase):
 class TestReversalAdxPenalty(unittest.TestCase):
 
     def test_reversal_adx_penalty_applied(self):
-        """REVERSAL + m15_adx=38(>35) → adx_reversal_penalty が breakdown に含まれる"""
+        """REVERSAL: 廃止レジームのため Gate2 で即 reject され score=-999 になる"""
         alert = _make_alert(
             regime="REVERSAL",
             direction="sell",
             h1_adx=30.0,
-            m15_adx=38.0,           # adx_reversal_penalty 発動
+            m15_adx=38.0,
             choch_confirmed=True,
             sweep_detected=True,
         )
         result = calculate_score(alert)
 
-        # ゲートは通過しているはず
-        self.assertNotEqual(result["score"], -999.0)
-        self.assertIn("adx_reversal_penalty", result["score_breakdown"])
-        self.assertLess(result["score_breakdown"]["adx_reversal_penalty"], 0)
-        # adx_normal は 25〜35 の範囲外なので付かない
-        self.assertNotIn("adx_normal", result["score_breakdown"])
+        self.assertEqual(result["decision"], "reject")
+        self.assertEqual(result["score"], -999.0)
+        self.assertTrue(any("REVERSAL" in r for r in result["reject_reasons"]))
 
 
 # ──────────────────────────────────────────────────────────
@@ -402,6 +396,20 @@ class TestSessionOffPenalty(unittest.TestCase):
         result = calculate_score(alert)
 
         self.assertNotIn("session_ny", result["score_breakdown"])
+
+
+class TestReversalRejected(unittest.TestCase):
+    def test_reversal_rejected_by_gate2(self):
+        """REVERSAL: Gate2で即rejectされること"""
+        alert = _make_alert(
+            regime="REVERSAL",
+            h1_adx=30.0,
+            choch_confirmed=True,
+            sweep_detected=True,
+        )
+        result = calculate_score(alert)
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(any("REVERSAL" in r for r in result["reject_reasons"]))
 
 
 # ──────────────────────────────────────────────────────────
