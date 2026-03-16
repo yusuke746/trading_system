@@ -120,10 +120,18 @@ class TestBuildOrderParams(unittest.TestCase):
 
     def test_sl_clamped_to_min(self):
         """ATR × SL_MULT < min_sl_pips のとき SL は min_sl_pips にクランプされる"""
-        # min_sl_pips=8, sl_mult=2.0 → atr*2 < 8 のとき発動
-        # atr=3.5: ボラ下限(3.0)を超えるのでフィルター通過し、クランプが発動する
-        atr    = 3.5   # 3.5 * 2.0 = 7.0 < min_sl_pips(8)
-        params = self._run(direction="buy", price=5200.0, atr=atr)
+        # atr=3.5, sl_mult=2.0 → 3.5 * 2.0 = 7.0 < min_sl_pips(8.0) でクランプ発動
+        # ※ config の atr_sl_multiplier(2.7)では 3.5*2.7=9.45 でクランプしないため
+        #   このテスト専用に sl_mult=2.0 をモック
+        atr = 3.5
+        live_params = {**_live_params_default(), "atr_sl_multiplier": 2.0}
+        trigger   = _make_trigger("buy", 5200.0)
+        ai_result = _make_ai_result()
+        with patch("executor._get_atr15m", return_value=atr), \
+             patch("executor.param_optimizer.get_live_params", return_value=live_params), \
+             patch("executor.get_current_session", return_value={"session": "London"}):
+            import executor
+            params = executor.build_order_params(trigger, ai_result)
         self.assertIsNotNone(params)
         self.assertAlmostEqual(
             params["entry_price"] - params["sl_price"],
@@ -231,6 +239,50 @@ class TestBuildOrderParams(unittest.TestCase):
         params = self._run(direction="buy", price=price, order_type="market")
         self.assertIsNotNone(params)
         self.assertAlmostEqual(params["entry_price"], price)
+
+    # ── JPY口座 フォールバックレート ─────────────────────
+
+    def test_jpy_account_uses_fallback_rate_when_zero(self):
+        """JPY口座でsymbol_info.bid=0かつsymbol_info_tick.bid=0の場合、
+        フォールバックレート(≈150.0)を使用してNoneを返さないこと"""
+        import executor
+
+        mock_acc = MagicMock()
+        mock_acc.balance  = 500000.0
+        mock_acc.currency = "JPY"
+
+        # USDJPY の bid = 0.0（バグの再現）
+        mock_info_zero = MagicMock()
+        mock_info_zero.bid = 0.0
+
+        # symbol_info_tick も bid/ask = 0.0
+        mock_tick_zero = MagicMock()
+        mock_tick_zero.bid = 0.0
+        mock_tick_zero.ask = 0.0
+
+        trigger   = _make_trigger("buy", 5200.0)
+        ai_result = _make_ai_result()
+
+        # mt5 はMT5未インストール環境では executor 名前空間に存在しないため
+        # create=True で動的に注入する
+        mock_mt5 = MagicMock()
+        mock_mt5.account_info.return_value    = mock_acc
+        mock_mt5.symbol_info.return_value     = mock_info_zero
+        mock_mt5.symbol_info_tick.return_value = mock_tick_zero
+
+        with patch("executor.MT5_AVAILABLE", True), \
+             patch.object(executor, "mt5", mock_mt5, create=True), \
+             patch("executor._get_atr15m", return_value=10.0), \
+             patch("executor.param_optimizer.get_live_params",
+                   return_value=_live_params_default()), \
+             patch("executor.get_current_session",
+                   return_value={"session": "London"}):
+            params = executor.build_order_params(trigger, ai_result)
+
+        # フォールバックレート使用 → None を返さない
+        self.assertIsNotNone(params)
+        # lot_size が現実的な値（異常値12.5にならないこと）
+        self.assertLess(params["lot_size"], 5.0)
 
     # ── 動的パラメータの記録 ─────────────────────────────
 
