@@ -428,29 +428,19 @@ bool rsi_divergence = false
 bool news_nearby = false
 
 // ─── アラート発火条件 ──────────────────────────────────────────────────────────
-// 必須ゲート定義:
-//   TREND:    CHoCH確認 AND (Zone or FVG ヒット)
-//   REVERSAL: スイープ確認 AND CHoCH確認
-//   BREAKOUT: Zone or FVG でのリテスト確認
+// Pine Scriptはレジーム検出とdirection確定のみを担当する。
+// choch/fvg/zone/sweepの確認はScoring Engine側（Gate3）で行う。
+// これによりGate3が実際のフィルタとして機能するようになる（v4.1）
 var int last_alert_bar = na
 bool cooldown_ok  = na(last_alert_bar) or (bar_index - last_alert_bar) > cooldown_bars
 
-// TRENDエントリー:
-//   従来通り: choch_confirmed AND (fvg_aligned OR zone_aligned)
-//   新規追加: bos_pending中にプルバックでOB/FVG/Zoneに戻った時
-bool trend_entry_choch = (regime == "TREND"
-    and choch_confirmed
-    and (fvg_aligned or zone_aligned))
+// TRENDエントリー（BOS経由のpendingリセット用に維持）
 bool trend_entry_bos = (regime == "TREND"
     and (bos_pending_bull or bos_pending_bear)
     and (ob_aligned or fvg_aligned or zone_aligned))
-bool trend_entry = trend_entry_choch or trend_entry_bos
 
-// REVERSAL・BREAKOUTは変更なし
-bool reversal_entry  = regime == "REVERSAL" and choch_confirmed and sweep_detected
-bool breakout_entry  = regime == "BREAKOUT" and (fvg_aligned or zone_aligned)
-
-bool should_alert = cooldown_ok and (trend_entry or reversal_entry or breakout_entry)
+// should_alert: レジームがRANGE以外 かつ direction確定済みのバーで発火
+bool should_alert = cooldown_ok and (regime != "RANGE") and (direction != "none")
 
 // BOS経由でエントリーが発火したらpendingをリセット
 if trend_entry_bos
