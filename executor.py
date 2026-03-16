@@ -22,6 +22,8 @@ import discord_notifier
 
 logger = logging.getLogger(__name__)
 
+JPY_USD_FALLBACK_RATE = 1.0 / 150.0  # 1円 = 0.00667ドル（概算）
+
 SYMBOL         = SYSTEM_CONFIG["symbol"]
 MAX_POSITIONS  = SYSTEM_CONFIG["max_positions"]
 MIN_MARGIN     = SYSTEM_CONFIG["min_free_margin"]
@@ -287,7 +289,33 @@ def build_order_params(trigger: dict, ai_result: dict,
                 info_direct = mt5.symbol_info(sym_direct)
                 if info_direct is not None:
                     usdjpy = info_direct.bid
-                    balance_usd = balance / usdjpy if usdjpy > 0 else balance
+                    # 修正A: bid=0 の場合 symbol_info_tick() でリトライ
+                    if usdjpy <= 0:
+                        for sym_try in (f"USD{currency}#", sym_direct):
+                            try:
+                                tick = mt5.symbol_info_tick(sym_try)
+                                if tick is not None and tick.bid > 0:
+                                    usdjpy = tick.bid
+                                    break
+                            except Exception:
+                                pass
+                    # 修正A: それでも0ならフォールバックレート使用（JPY専用）
+                    if usdjpy <= 0 and currency == "JPY":
+                        usdjpy = 1.0 / JPY_USD_FALLBACK_RATE  # ≈ 150.0
+                        logger.warning(
+                            "⚠️ %s のレートが取得できません。"
+                            "フォールバックレート %.4f を使用します",
+                            sym_direct, usdjpy,
+                        )
+                    # 修正B: それでも0以下なら計算中止
+                    if usdjpy <= 0:
+                        logger.error(
+                            "❌ 口座通貨=%s USD換算レートが0のため"
+                            "注文パラメータ生成を中止します",
+                            currency,
+                        )
+                        return None
+                    balance_usd = balance / usdjpy
                     logger.info(
                         "💱 口座通貨=%s balance=%.2f %s → USD換算=%.2f (rate=%.4f)",
                         currency, balance, currency, balance_usd, usdjpy,
