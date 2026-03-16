@@ -111,6 +111,12 @@ def _check_gates(alert: dict) -> list[str]:
         reasons.append("Gate2: regime=REVERSAL → reject (廃止レジーム)")
         return reasons
 
+    # 共通ゲート ③: direction が未確定の場合は即 reject
+    direction = alert.get("direction", "none")
+    if direction == "none":
+        reasons.append("Gate3: direction=none → reject (方向未確定)")
+        return reasons
+
     # レジーム別追加ゲート
     if regime == "TREND":
         bos_al    = bool(alert.get("bos_confirmed", False))
