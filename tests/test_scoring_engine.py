@@ -412,6 +412,20 @@ class TestReversalRejected(unittest.TestCase):
         self.assertTrue(any("REVERSAL" in r for r in result["reject_reasons"]))
 
 
+class TestDirectionNoneRejected(unittest.TestCase):
+    def test_direction_none_rejected(self):
+        """direction=none: Gate3で即rejectされること"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="none",
+            h1_adx=30.0,
+            fvg_aligned=True,
+        )
+        result = calculate_score(alert)
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(any("direction=none" in r for r in result["reject_reasons"]))
+
+
 # ──────────────────────────────────────────────────────────
 # エントリーポイント
 # ──────────────────────────────────────────────────────────
