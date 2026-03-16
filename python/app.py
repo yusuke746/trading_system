@@ -48,6 +48,7 @@ from executor          import execute_order
 from dashboard         import dashboard_bp
 from logger_module     import log_event
 from config            import SYSTEM_CONFIG
+import discord_notifier
 
 FLASK_PORT = int(os.getenv("FLASK_PORT", 80))
 
@@ -76,6 +77,21 @@ def webhook():
             logger.warning("必須フィールド欠損: %s", missing)
             return jsonify({"error": f"missing fields: {missing}"}), 400
 
+        # Discord通知: シグナル受信（スコアリング前）
+        try:
+            discord_notifier.notify(
+                title="📡 シグナル受信",
+                description=f"regime=`{alert.get('regime')}` dir=`{alert.get('direction')}`",
+                color=0x808080,
+                fields={
+                    "regime":    alert.get("regime", "—"),
+                    "direction": alert.get("direction", "—"),
+                    "price":     alert.get("price", "—"),
+                },
+            )
+        except Exception:
+            pass
+
         # スコアリング（LLM不使用・ルールベース）
         from scoring_engine import calculate_score
         result = calculate_score(alert)
@@ -95,6 +111,25 @@ def webhook():
         )
 
         if decision == "approve":
+            # Discord通知: エントリー承認
+            try:
+                top_flags = [k for k, v in result.get("score_breakdown", {}).items() if v > 0]
+                discord_notifier.notify(
+                    title="✅ エントリー承認",
+                    description=(
+                        f"regime=`{alert.get('regime')}` dir=`{alert.get('direction')}`"
+                    ),
+                    color=0x00FF00,
+                    fields={
+                        "score":      f"{result['score']:.3f}",
+                        "regime":     alert.get("regime", "—"),
+                        "direction":  alert.get("direction", "—"),
+                        "主要フラグ": ", ".join(top_flags[:5]) or "—",
+                    },
+                )
+            except Exception:
+                pass
+
             # 高インパクト時間帯チェック
             from risk_manager import is_high_impact_period
             if is_high_impact_period():
@@ -133,6 +168,24 @@ def webhook():
 
         else:  # reject
             logger.info("❌ reject: reasons=%s", result.get("reject_reasons"))
+            # Discord通知: エントリー否決
+            try:
+                reasons = result.get("reject_reasons") or []
+                discord_notifier.notify(
+                    title="❌ エントリー否決",
+                    description=(
+                        f"regime=`{alert.get('regime')}` dir=`{alert.get('direction')}`"
+                    ),
+                    color=0xFF0000,
+                    fields={
+                        "score":      f"{result['score']:.3f}",
+                        "regime":     alert.get("regime", "—"),
+                        "direction":  alert.get("direction", "—"),
+                        "否決理由":   ", ".join(reasons) or "スコア不足",
+                    },
+                )
+            except Exception:
+                pass
             return jsonify({
                 "status":  "rejected",
                 "reasons": result.get("reject_reasons"),

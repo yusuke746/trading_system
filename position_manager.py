@@ -23,6 +23,7 @@ except ImportError:
 
 from config import SYSTEM_CONFIG
 from logger_module import log_event, log_trade_result
+import discord_notifier
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,34 @@ class PositionManager:
         # MT5にポジションが存在するか確認
         mt5_pos = mt5.positions_get(ticket=pos.ticket)
         if not mt5_pos:
-            # 決済済み → 呼び出し元(_tick)が削除するためここでは削除しない
+            # 決済済み → Discord通知してから呼び出し元(_tick)が削除
+            try:
+                if pos.direction == "buy":
+                    pnl_est = (current_price - pos.entry_price) * pos.lot_size * 100
+                else:
+                    pnl_est = (pos.entry_price - current_price) * pos.lot_size * 100
+                if pnl_est >= 0:
+                    title  = "💰 決済（利確）"
+                    color  = 0x00FF00
+                    reason = "TP/trailing"
+                else:
+                    title  = "🔴 決済（損切）"
+                    color  = 0xFF0000
+                    reason = "SL"
+                discord_notifier.notify(
+                    title=title,
+                    description=f"{SYMBOL} {pos.direction} ticket={pos.ticket}",
+                    color=color,
+                    fields={
+                        "symbol":    SYMBOL,
+                        "損益(推定)": f"${pnl_est:.2f}",
+                        "決済理由":   reason,
+                        "entry":     f"{pos.entry_price:.3f}",
+                        "exit(推定)": f"{current_price:.3f}",
+                    },
+                )
+            except Exception:
+                pass
             return "closed"
 
         if pos.direction == "buy":
@@ -239,6 +267,21 @@ class PositionManager:
                       f"ticket={pos.ticket} vol={close_vol} price={current_price}")
             logger.info("💰 部分決済: ticket=%d vol=%.2f @ %.3f pnl=%.2f USD",
                         pos.ticket, close_vol, current_price, pnl)
+            try:
+                discord_notifier.notify(
+                    title="💰 決済（利確）",
+                    description=f"{SYMBOL} {pos.direction} ticket={pos.ticket}",
+                    color=0x00FF00,
+                    fields={
+                        "symbol":   SYMBOL,
+                        "損益":     f"${pnl:.2f}",
+                        "決済理由": "partial_tp",
+                        "vol":      f"{close_vol:.2f}",
+                        "price":    f"{current_price:.3f}",
+                    },
+                )
+            except Exception:
+                pass
 
             # DB記録
             dur = (datetime.now(timezone.utc) - pos.entered_at).total_seconds() / 60
