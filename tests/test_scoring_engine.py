@@ -24,6 +24,7 @@ AI Trading System v4.0
 import sys
 import os
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -410,6 +411,30 @@ class TestReversalRejected(unittest.TestCase):
         result = calculate_score(alert)
         self.assertEqual(result["decision"], "reject")
         self.assertTrue(any("REVERSAL" in r for r in result["reject_reasons"]))
+
+
+class TestNewsBlackout(unittest.TestCase):
+    def test_news_penalty_applied_when_pine_flag_true(self):
+        """news_nearby=true のとき減点が入ること"""
+        alert = _make_alert(news_nearby=True)
+        result = calculate_score(alert)
+        self.assertIn("news_nearby", result["score_breakdown"])
+        self.assertLess(result["score_breakdown"]["news_nearby"], 0)
+
+    def test_news_penalty_applied_when_blackout(self):
+        """is_news_blackout()=True のとき、pine flag=false でも減点が入ること"""
+        alert = _make_alert(news_nearby=False)
+        with patch("news_filter.is_news_blackout", return_value=True):
+            result = calculate_score(alert)
+        self.assertIn("news_nearby", result["score_breakdown"])
+        self.assertLess(result["score_breakdown"]["news_nearby"], 0)
+
+    def test_no_news_penalty_in_normal_time(self):
+        """通常時間帯（pine_flag=false、blackout=false）は減点なし"""
+        alert = _make_alert(news_nearby=False)
+        with patch("news_filter.is_news_blackout", return_value=False):
+            result = calculate_score(alert)
+        self.assertNotIn("news_nearby", result["score_breakdown"])
 
 
 class TestDirectionNoneRejected(unittest.TestCase):

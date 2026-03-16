@@ -156,3 +156,44 @@ def check_news_filter(symbol: str = "XAUUSD") -> dict:
 
     return {"blocked": False, "reason": "ニュースフィルター通過",
             "resumes_at": None, "fail_safe_triggered": False}
+
+
+# ── 固定ブラックアウト時刻リスト（UTC） ──────────────────────────────────────
+# XAUUSDに影響が大きい高インパクト指標の発表時刻（UTC）
+# 毎週固定のもの + 月次固定のもの。年次イベントは別途手動更新。
+#
+# 形式: (月, 日, 時, 分) は月次イベント用
+# 毎週固定: (weekday, 時, 分)  weekday: 0=月, 1=火, ..., 4=金
+#
+# ※ 正確な日時はForex Factory等で毎月確認して更新すること
+_WEEKLY_BLACKOUTS = [
+    # 米・新規失業保険申請件数（毎週木曜 12:30 UTC）
+    (3, 12, 30),
+]
+_BLACKOUT_MINUTES = 30  # 発表前後何分をブロックするか
+def is_news_blackout(dt: datetime | None = None) -> bool:
+    """
+    指定日時（省略時は現在UTC）が固定ブラックアウト時間帯かどうかを返す。
+
+    Pine Script の news_nearby=false を補完するためのフォールバック。
+    外部APIが利用できない環境でも最低限の防御を提供する。
+
+    Returns:
+        True  = ブラックアウト中（エントリー禁止）
+        False = 通常時
+    """
+    from datetime import timezone
+    if dt is None:
+        dt = datetime.now(timezone.utc)
+
+    weekday = dt.weekday()  # 0=月〜4=金
+    current_minutes = dt.hour * 60 + dt.minute
+
+    for (target_weekday, hour, minute) in _WEEKLY_BLACKOUTS:
+        if weekday != target_weekday:
+            continue
+        center_minutes = hour * 60 + minute
+        if abs(current_minutes - center_minutes) <= _BLACKOUT_MINUTES:
+            return True
+
+    return False
