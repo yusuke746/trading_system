@@ -212,8 +212,17 @@ def _apply_atr_ratio_score(alert: dict, cfg: dict, breakdown: dict) -> None:
 
 
 def _apply_news_penalty(alert: dict, cfg: dict, breakdown: dict) -> None:
-    """高インパクトニュース 30 分前後 → 大幅減点"""
-    if bool(alert.get("news_nearby", False)):
+    """高インパクトニュース 30 分前後 → 大幅減点
+
+    Pine Script の news_nearby フラグ、または固定ブラックアウト時刻の
+    いずれかが True の場合にペナルティを適用する。
+    """
+    from news_filter import is_news_blackout
+
+    pine_flag = bool(alert.get("news_nearby", False))
+    blackout  = is_news_blackout()
+
+    if pine_flag or blackout:
         breakdown["news_nearby"] = cfg["news_nearby"]
 
 
