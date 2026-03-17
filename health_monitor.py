@@ -140,5 +140,14 @@ class HealthMonitor:
         if init_mt5():
             self._is_connected = True
             log_event("mt5_reconnect_success", "MT5自動再接続成功")
+            try:
+                discord_notifier.notify(
+                    title="✅ MT5再接続成功",
+                    description="自動再接続に成功しました。システムを再開します。",
+                    color=0x00FF00,
+                    fields={"状態": "MT5 reconnected"},
+                )
+            except Exception:
+                pass
         else:
             log_event("mt5_reconnect_failed", "MT5自動再接続失敗", level="ERROR")
