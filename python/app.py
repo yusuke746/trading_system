@@ -52,6 +52,16 @@ import discord_notifier
 
 FLASK_PORT = int(os.getenv("FLASK_PORT", 80))
 
+# シンボル変換テーブル（TradingView → MT5ブローカー仕様）
+_SYMBOL_MAP = {
+    "XAUUSD": "GOLD#",
+    "GOLD":   "GOLD#",
+    "XAUUSD.": "GOLD#",
+}
+def _normalize_symbol(symbol: str) -> str:
+    """TradingViewのシンボル名をMT5ブローカー仕様に変換する"""
+    return _SYMBOL_MAP.get(symbol.upper(), symbol)
+
 # ── グローバルコンポーネント ───────────────────────────────────
 app             = Flask(__name__)
 position_manager: PositionManager = None
@@ -138,8 +148,9 @@ def webhook():
                 return jsonify({"status": "blocked", "reason": "high_impact_period"}), 200
 
             # execute_order 用の trigger / ai_result を構築
+            raw_symbol = alert.get("symbol", "XAUUSD")
             trigger = {
-                "symbol":    alert.get("symbol", "XAUUSD"),
+                "symbol":    _normalize_symbol(raw_symbol),
                 "price":     float(alert.get("price", 0)),
                 "direction": alert.get("direction", ""),  # "buy" / "sell"
                 "atr5":      float(alert.get("atr5", 0)), # SL用ATR（5M）
