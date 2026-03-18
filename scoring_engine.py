@@ -119,15 +119,15 @@ def _check_gates(alert: dict) -> list[str]:
 
     # レジーム別追加ゲート
     if regime == "TREND":
-        bos_al    = bool(alert.get("bos_confirmed", False))
-        ob_al     = bool(alert.get("ob_aligned",    False))
-        choch_path = choch and (fvg_al or zone_al)
-        bos_path   = bos_al and ob_al
-        if not choch_path and not bos_path:
+        bos_al = bool(alert.get("bos_confirmed", False))
+        ob_al  = bool(alert.get("ob_aligned",    False))
+        # SMC条件のいずれか1つあれば通過（AND→OR緩和）
+        # 複数条件の組み合わせ評価はスコアリングで行う
+        smc_any = choch or fvg_al or zone_al or bos_al or ob_al
+        if not smc_any:
             reasons.append(
-                "Gate3(TREND): "
-                "CHoCHパス(choch+fvg/zone)も"
-                "BOSパス(bos+ob)も未充足"
+                "Gate3(TREND): SMC条件未充足"
+                "(choch/fvg/zone/bos/ob が全てfalse)"
             )
 
     elif regime == "REVERSAL":
