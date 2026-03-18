@@ -463,11 +463,13 @@ bool trend_entry_bos = (regime == "TREND"
     and (bos_pending_bull or bos_pending_bear)
     and (ob_aligned or fvg_aligned or zone_aligned))
 
-// TREND: CHoCH保持中にFVGまたはZoneにリテストしたとき発火
+// TREND CHoCHパス: CHoCH保持中にFVGまたはZoneにリテストしたとき発火
 bool trend_alert = regime == "TREND" and choch_held and (fvg_hit or zone_hit)
+// TREND BOSパス: BOS pending中にOBにリテストしたとき発火
+bool bos_alert = regime == "TREND" and ob_aligned
 // BREAKOUT: 従来通り（方向確定済みならそのまま発火）
 bool breakout_alert = regime == "BREAKOUT" and direction != "none"
-bool should_alert = cooldown_ok and (trend_alert or breakout_alert)
+bool should_alert = cooldown_ok and (trend_alert or bos_alert or breakout_alert)
 
 // BOS経由でエントリーが発火したらpendingをリセット
 if trend_entry_bos
