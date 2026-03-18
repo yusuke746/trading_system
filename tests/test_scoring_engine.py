@@ -155,10 +155,16 @@ class TestTrendRejectH1Adx(unittest.TestCase):
 
 class TestTrendRejectChoch(unittest.TestCase):
 
-    def test_trend_reject_choch_false(self):
-        """TREND: choch_confirmed=false かつBOSパスも未充足 → Gate3(TREND) 不通過で reject
-        (P3変更: CHoCHパスもBOSパスも通らない場合に reject)"""
-        alert = _make_alert(choch_confirmed=False, fvg_aligned=True)
+    def test_trend_reject_all_smc_false(self):
+        """TREND: choch/fvg/zone/bos/ob が全てfalse → Gate3(TREND) 不通過で reject
+        (OR緩和後: SMC条件が1つも満たされない場合のみ reject)"""
+        alert = _make_alert(
+            choch_confirmed=False,
+            fvg_aligned=False,
+            zone_aligned=False,
+            bos_confirmed=False,
+            ob_aligned=False,
+        )
         result = calculate_score(alert)
 
         self.assertEqual(result["decision"], "reject")
@@ -166,15 +172,20 @@ class TestTrendRejectChoch(unittest.TestCase):
             any("Gate3(TREND)" in r for r in result["reject_reasons"])
         )
 
-    def test_trend_reject_no_fvg_no_zone(self):
-        """TREND: choch=True だが fvg/zone=False かつBOSパスも未充足 → reject
-        (P3変更: CHoCHパス=choch+fvg/zone が未充足、BOSパスも未充足で reject)"""
-        alert = _make_alert(fvg_aligned=False, zone_aligned=False)
+    def test_trend_approve_choch_only(self):
+        """TREND: choch=True のみでGate3通過（OR緩和）→ approve"""
+        alert = _make_alert(
+            choch_confirmed=True,
+            fvg_aligned=False,
+            zone_aligned=False,
+            bos_confirmed=False,
+            ob_aligned=False,
+        )
         result = calculate_score(alert)
 
-        self.assertEqual(result["decision"], "reject")
-        self.assertTrue(
-            any("Gate3(TREND)" in r for r in result["reject_reasons"])
+        self.assertNotEqual(result["decision"], "reject")
+        self.assertFalse(
+            any("Gate3(TREND)" in r for r in result.get("reject_reasons", []))
         )
 
 
