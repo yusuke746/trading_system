@@ -237,9 +237,9 @@ if array.size(bear_ob_lo) > 0
 bool ob_aligned = ((direction == "buy"  and bos_pending_bull and ob_hit_bull)
                   or (direction == "sell" and bos_pending_bear and ob_hit_bear))
 
-// bos_confirmed: ob_alignedが成立した時点でtrueとしてJSONに渡す
-// （スコアリング側への情報として使用）
-bool bos_confirmed = ob_aligned
+// bos_confirmed: BOS発生（pending中）を示すフラグ
+// ob_alignedとは独立した別の意味を持つ
+bool bos_confirmed = bos_pending_bull or bos_pending_bear
 
 // ─── FVG（5M、ヒット検出用。ボックス描画なし） ────────────────────────────────
 // Bull FVG: high[2] < low[0]  → ゾーン範囲 [high[2], low[0]]

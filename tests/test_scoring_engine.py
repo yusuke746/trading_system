@@ -448,6 +448,36 @@ class TestNewsBlackout(unittest.TestCase):
         self.assertNotIn("news_nearby", result["score_breakdown"])
 
 
+class TestBosObScoring(unittest.TestCase):
+    def test_ob_aligned_only_scores(self):
+        """ob_aligned=True, bos_confirmed=True のとき ob_aligned のみ加点"""
+        alert = _make_alert(
+            regime="TREND",
+            bos_confirmed=True,
+            ob_aligned=True,
+            fvg_aligned=False,
+            choch_confirmed=False,
+            zone_aligned=False,
+        )
+        result = calculate_score(alert)
+        self.assertIn("ob_aligned", result["score_breakdown"])
+        self.assertNotIn("bos_confirmed", result["score_breakdown"])
+
+    def test_bos_only_scores_when_no_ob(self):
+        """bos_confirmed=True, ob_aligned=False のとき bos_confirmed のみ加点"""
+        alert = _make_alert(
+            regime="TREND",
+            bos_confirmed=True,
+            ob_aligned=False,
+            fvg_aligned=False,
+            choch_confirmed=False,
+            zone_aligned=False,
+        )
+        result = calculate_score(alert)
+        self.assertIn("bos_confirmed", result["score_breakdown"])
+        self.assertNotIn("ob_aligned", result["score_breakdown"])
+
+
 class TestDirectionNoneRejected(unittest.TestCase):
     def test_direction_none_rejected(self):
         """direction=none: Gate3で即rejectされること"""
