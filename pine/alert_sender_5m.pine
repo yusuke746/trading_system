@@ -22,6 +22,7 @@ bos_timeout_bars  = input.int(20,    "BOS Timeout Bars（5M換算100分）",
                                minval=5, maxval=50,
                                tooltip="BOSからこの本数以内にプルバックがなければキャンセル")
 show_debug        = input.bool(true, "デバッグテーブル表示")
+choch_hold_bars   = input.int(10, "CHoCH保持バー数", minval=3, maxval=30, tooltip="CHoCH発生後、何バー以内にFVG/Zoneリテストで発火するか")
 
 // ─── Manual ADX（DMIベース） ──────────────────────────────────────────────────
 adx_calc(h, l, c, period) =>
@@ -123,6 +124,29 @@ if bullish_choch
     last_swing_high := na
 if bearish_choch
     last_swing_low := na
+
+// CHoCH保持フラグ（発生後N バー保持）
+var bool choch_held_bull     = false
+var int  choch_held_bull_bar = na
+var bool choch_held_bear     = false
+var int  choch_held_bear_bar = na
+
+// CHoCH発生時に保持フラグをセット
+if bullish_choch
+    choch_held_bull     := true
+    choch_held_bull_bar := bar_index
+if bearish_choch
+    choch_held_bear     := true
+    choch_held_bear_bar := bar_index
+
+// N バー経過したら保持フラグをリセット
+if choch_held_bull and (bar_index - choch_held_bull_bar) > choch_hold_bars
+    choch_held_bull := false
+if choch_held_bear and (bar_index - choch_held_bear_bar) > choch_hold_bars
+    choch_held_bear := false
+
+// 方向に合わせた保持フラグ
+bool choch_held = direction == "buy" ? choch_held_bull : direction == "sell" ? choch_held_bear : false
 
 // ─── BOS（Break of Structure）────────────────────────────────────────────────
 // TRENDレジームでのトレンド継続確認
@@ -439,8 +463,11 @@ bool trend_entry_bos = (regime == "TREND"
     and (bos_pending_bull or bos_pending_bear)
     and (ob_aligned or fvg_aligned or zone_aligned))
 
-// should_alert: レジームがRANGE以外 かつ direction確定済みのバーで発火
-bool should_alert = cooldown_ok and (regime != "RANGE") and (direction != "none")
+// TREND: CHoCH保持中にFVGまたはZoneにリテストしたとき発火
+bool trend_alert = regime == "TREND" and choch_held and (fvg_hit or zone_hit)
+// BREAKOUT: 従来通り（方向確定済みならそのまま発火）
+bool breakout_alert = regime == "BREAKOUT" and direction != "none"
+bool should_alert = cooldown_ok and (trend_alert or breakout_alert)
 
 // BOS経由でエントリーが発火したらpendingをリセット
 if trend_entry_bos
@@ -486,7 +513,7 @@ if barstate.isconfirmed and should_alert
 
 // ─── デバッグテーブル ───────────────────────────────────────────────────────────
 if show_debug
-    var table t = table.new(position.bottom_right, 2, 12,
+    var table t = table.new(position.bottom_right, 2, 13,
                              bgcolor     = color.new(color.black, 70),
                              border_color = color.gray, border_width = 1,
                              frame_color  = color.gray, frame_width  = 1)
@@ -539,4 +566,8 @@ if show_debug
     table.cell(t, 0, 11, "Alert firing",   text_color=color.white,  bgcolor=color.new(color.black, 70))
     table.cell(t, 1, 11, str.tostring(should_alert),
                                             text_color=should_alert ? color.lime : color.gray,
+                                            bgcolor=color.new(color.black, 70))
+    table.cell(t, 0, 12, "CHoCH held",     text_color=color.white,  bgcolor=color.new(color.black, 70))
+    table.cell(t, 1, 12, str.tostring(choch_held),
+                                            text_color=choch_held ? color.lime : color.gray,
                                             bgcolor=color.new(color.black, 70))
