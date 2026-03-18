@@ -178,7 +178,7 @@ SCORING_CONFIG = {
     # Pine Script フラット JSON を直接受け取る新アーキテクチャ用パラメータ。
 
     # --- 判定閾値 ---
-    "approve_threshold":      0.25,   # 新テーブル向け確定値（旧 0.45 から変更）
+    "approve_threshold":      0.15,   # 新テーブル向け確定値（旧 0.25 から変更）
     "wait_threshold":         0.00,   # 新テーブル向け確定値（旧 0.10 から変更）
 
     # --- CHoCH 確認（強い構造転換）---

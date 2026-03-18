@@ -478,6 +478,52 @@ class TestBosObScoring(unittest.TestCase):
         self.assertNotIn("ob_aligned", result["score_breakdown"])
 
 
+class TestApproveThreshold(unittest.TestCase):
+    # CHoCH単体スコアのみを測定するため、他の加点要素を中立化する共通設定:
+    #   m15_adx=36    → adx_normal(+0.10) の範囲[25,35]から外れ加点なし
+    #   h1_direction="bear" + direction="buy" → h1_direction_aligned(+0.10) 不適用
+    #   atr_ratio=0.5 → atr_ratio_normal(+0.05) の範囲[0.8,1.5]から外れ加点なし
+    _ISOLATED = dict(
+        m15_adx=36.0,
+        h1_direction="bear",
+        direction="buy",
+        atr_ratio=0.5,
+        fvg_aligned=False, zone_aligned=False,
+        fvg_hit=False, zone_hit=False,
+        bos_confirmed=False, ob_aligned=False,
+    )
+
+    def test_choch_london_ny_approve(self):
+        """CHoCH単体 + london_ny → approve（score=0.30 >= 0.15）"""
+        alert = _make_alert(choch_confirmed=True, session="london_ny", **self._ISOLATED)
+        result = calculate_score(alert)
+        self.assertEqual(result["decision"], "approve")
+
+    def test_choch_london_approve(self):
+        """CHoCH単体 + london → approve（score=0.25 >= 0.15）"""
+        alert = _make_alert(choch_confirmed=True, session="london", **self._ISOLATED)
+        result = calculate_score(alert)
+        self.assertEqual(result["decision"], "approve")
+
+    def test_choch_ny_approve(self):
+        """CHoCH単体 + ny → approve（score=0.20 >= 0.15）"""
+        alert = _make_alert(choch_confirmed=True, session="ny", **self._ISOLATED)
+        result = calculate_score(alert)
+        self.assertEqual(result["decision"], "approve")
+
+    def test_choch_tokyo_wait(self):
+        """CHoCH単体 + tokyo → wait（score=0.10 < 0.15）"""
+        alert = _make_alert(choch_confirmed=True, session="tokyo", **self._ISOLATED)
+        result = calculate_score(alert)
+        self.assertEqual(result["decision"], "wait")
+
+    def test_choch_off_wait(self):
+        """CHoCH単体 + off → wait（score=0.00 >= wait_threshold）"""
+        alert = _make_alert(choch_confirmed=True, session="off", **self._ISOLATED)
+        result = calculate_score(alert)
+        self.assertIn(result["decision"], ["wait", "reject"])
+
+
 class TestDirectionNoneRejected(unittest.TestCase):
     def test_direction_none_rejected(self):
         """direction=none: Gate3で即rejectされること"""
