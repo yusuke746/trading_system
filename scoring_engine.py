@@ -227,12 +227,21 @@ def _apply_news_penalty(alert: dict, cfg: dict, breakdown: dict) -> None:
 
 
 def _apply_bos_ob_score(alert: dict, cfg: dict, breakdown: dict) -> None:
-    """BOS確認・OBヒット加点（P3追加）"""
-    if bool(alert.get("bos_confirmed", False)):
-        breakdown["bos_confirmed"] = cfg.get("bos_confirmed", 0.20)
-    if bool(alert.get("ob_aligned", False)):
+    """
+    BOS/OBスコア評価。
+    bos_confirmed = BOS発生（トレンド継続の構造確認）→ 加点
+    ob_aligned    = OBにリテスト済み（実際のエントリーポイント到達）→ 加点
+    両方同時にtrueの場合はob_alignedがbos_confirmedを包含するため
+    bos_confirmedの加点は省略（二重加点防止）
+    """
+    bos = bool(alert.get("bos_confirmed", False))
+    ob  = bool(alert.get("ob_aligned", False))
+    fvg = bool(alert.get("fvg_aligned", False))
+    if ob:
+        # OBリテスト成立 = BOSパス完成。ob_alignedのみ加点
         breakdown["ob_aligned"] = cfg.get("ob_aligned", 0.20)
-    # OB+FVG重複ボーナス
-    if bool(alert.get("ob_aligned", False)) and \
-       bool(alert.get("fvg_aligned", False)):
-        breakdown["ob_and_fvg"] = cfg.get("ob_and_fvg", 0.10)
+        if fvg:
+            breakdown["ob_and_fvg"] = cfg.get("ob_and_fvg", 0.10)
+    elif bos:
+        # BOSは発生しているがOBリテスト未到達 → 加点を抑える
+        breakdown["bos_confirmed"] = cfg.get("bos_confirmed", 0.20)
