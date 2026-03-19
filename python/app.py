@@ -125,15 +125,14 @@ def webhook():
             try:
                 top_flags = [k for k, v in result.get("score_breakdown", {}).items() if v > 0]
                 discord_notifier.notify(
-                    title="✅ エントリー承認",
+                    title="✅ エントリー承認 → 発注中...",
                     description=(
-                        f"regime=`{alert.get('regime')}` dir=`{alert.get('direction')}`"
+                        f"regime=`{alert.get('regime')}` dir=`{alert.get('direction')}` "
+                        f"| session=`{alert.get('session', '—')}`"
                     ),
                     color=0x00FF00,
                     fields={
-                        "score":      f"{result['score']:.3f}",
-                        "regime":     alert.get("regime", "—"),
-                        "direction":  alert.get("direction", "—"),
+                        "スコア":     f"{result['score']:.3f}",
                         "主要フラグ": ", ".join(top_flags[:5]) or "—",
                     },
                 )
@@ -171,6 +170,57 @@ def webhook():
             )
             logger.info("🚀 執行結果: success=%s ticket=%s",
                         exec_result.get("success"), exec_result.get("ticket"))
+
+            # Discord通知: 発注結果（成功/失敗）
+            try:
+                _direction = alert.get("direction", "—")
+                _regime    = alert.get("regime", "—")
+                _session   = alert.get("session", "—")
+                _score     = result["score"]
+                _top_flags = ", ".join(top_flags[:5]) or "—"
+                if exec_result.get("success"):
+                    # 発注成功：全情報を含む詳細通知
+                    ep  = exec_result.get("entry_price", 0)
+                    sl  = exec_result.get("sl_price",    0)
+                    tp  = exec_result.get("tp_price",    0)
+                    lot = exec_result.get("lot_size",    0)
+                    atr = exec_result.get("atr_dollar",  0)
+                    sl_dist = abs(ep - sl)
+                    risk_usd = sl_dist * lot * 100  # おおよそのリスク金額（ドル）
+                    discord_notifier.notify(
+                        title=f"🚀 発注成功 | {_regime} {_direction.upper()}",
+                        description=(
+                            f"Ticket: `{exec_result.get('ticket')}`"
+                        ),
+                        color=0x00CC44,
+                        fields={
+                            "エントリー": f"{ep:.2f}",
+                            "SL":        f"{sl:.2f}  (−{sl_dist:.2f}$)",
+                            "TP":        f"{tp:.2f}",
+                            "ロット":    f"{lot:.2f} lot",
+                            "リスク":    f"≈ ${risk_usd:.1f}",
+                            "ATR":       f"{atr:.2f}$",
+                            "スコア":    f"{_score:.3f}",
+                            "フラグ":    _top_flags,
+                            "セッション": _session,
+                        },
+                    )
+                else:
+                    # 発注失敗：理由を明示
+                    reason = exec_result.get("reason", "不明")
+                    discord_notifier.notify(
+                        title=f"❌ 発注失敗 | {_regime} {_direction.upper()}",
+                        description=f"承認されたが発注に失敗しました。",
+                        color=0xFF4444,
+                        fields={
+                            "失敗理由":   reason,
+                            "スコア":    f"{_score:.3f}",
+                            "セッション": _session,
+                        },
+                    )
+            except Exception:
+                pass
+
             return jsonify({"status": "approved", "exec": exec_result}), 200
 
         elif decision == "wait":
