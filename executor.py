@@ -428,15 +428,6 @@ def send_order(params: dict) -> tuple[bool, int, str]:
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         err = f"retcode={result.retcode} comment={result.comment}"
         logger.error("注文失敗: %s | req=%s", err, params)
-        try:
-            discord_notifier.notify(
-                title="⚠️ 発注失敗",
-                description=f"{params.get('symbol')} {params.get('direction')}",
-                color=0xFFFF00,
-                fields={"エラー": err},
-            )
-        except Exception:
-            pass
         return False, 0, err
 
     logger.info(
@@ -445,22 +436,6 @@ def send_order(params: dict) -> tuple[bool, int, str]:
         params["lot_size"], params["entry_price"],
         params["sl_price"], params["tp_price"],
     )
-    try:
-        discord_notifier.notify(
-            title="🚀 発注成功",
-            description=f"{params.get('symbol')} {params.get('direction')} ticket={result.order}",
-            color=0x00FF00,
-            fields={
-                "symbol":    params.get("symbol", "—"),
-                "direction": params.get("direction", "—"),
-                "lot":       f"{params.get('lot_size', 0):.2f}",
-                "entry":     f"{params.get('entry_price', 0):.3f}",
-                "SL":        f"{params.get('sl_price', 0):.3f}",
-                "TP":        f"{params.get('tp_price', 0):.3f}",
-            },
-        )
-    except Exception:
-        pass
     return True, result.order, ""
 
 
@@ -578,4 +553,9 @@ def execute_order(trigger: dict, ai_result: dict,
         "ticket":       ticket,
         "reason":       error_msg or "注文成功",
         "execution_id": exec_id,
+        "entry_price":  params.get("entry_price", 0) if params else 0,
+        "sl_price":     params.get("sl_price",    0) if params else 0,
+        "tp_price":     params.get("tp_price",    0) if params else 0,
+        "lot_size":     params.get("lot_size",    0) if params else 0,
+        "atr_dollar":   params.get("atr_dollar",  0) if params else 0,
     }
