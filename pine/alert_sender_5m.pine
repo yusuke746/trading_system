@@ -1,5 +1,6 @@
 //@version=6
-indicator("AI Alert Sender [XAUUSD/5M]", overlay=true, max_boxes_count=200)
+indicator("AI Alert Sender [XAUUSD/5M]", overlay=true,
+          max_boxes_count=500, max_labels_count=500, max_lines_count=500)
 
 // ─── Parameters ───────────────────────────────────────────────────────────────
 adx_trend_min     = input.int(25,    "ADXトレンド閾値",        minval=10, maxval=50)
@@ -22,6 +23,12 @@ bos_timeout_bars  = input.int(20,    "BOS Timeout Bars（5M換算100分）",
                                minval=5, maxval=50,
                                tooltip="BOSからこの本数以内にプルバックがなければキャンセル")
 show_debug        = input.bool(true, "デバッグテーブル表示")
+
+// ─── 描画設定 ─────────────────────────────────────────────────────────────────
+fvg_show  = input.bool(true, "FVG表示")
+zone_show = input.bool(true, "Zone表示")
+ob_show   = input.bool(true, "OB表示")
+bos_show  = input.bool(true, "BOS表示")
 
 // ─── Manual ADX（DMIベース） ──────────────────────────────────────────────────
 adx_calc(h, l, c, period) =>
@@ -171,13 +178,24 @@ var array<float> bull_ob_hi = array.new<float>()
 var array<float> bear_ob_lo = array.new<float>()
 var array<float> bear_ob_hi = array.new<float>()
 
+var array<box> bull_ob_boxes = array.new<box>()
+var array<box> bear_ob_boxes = array.new<box>()
+
 // OB登録
 if bullish_bos and close[1] < open[1]   // 1本前が陰線
     array.push(bull_ob_lo, low[1])
     array.push(bull_ob_hi, high[1])
+    b = box.new(bar_index - 1, high[1], bar_index + 50, low[1],
+                border_color = ob_show ? color.new(color.purple, 70) : na,
+                bgcolor      = ob_show ? color.new(color.purple, 85) : na)
+    array.push(bull_ob_boxes, b)
 if bearish_bos and close[1] > open[1]   // 1本前が陽線
     array.push(bear_ob_lo, low[1])
     array.push(bear_ob_hi, high[1])
+    b = box.new(bar_index - 1, high[1], bar_index + 50, low[1],
+                border_color = ob_show ? color.new(color.fuchsia, 70) : na,
+                bgcolor      = ob_show ? color.new(color.fuchsia, 85) : na)
+    array.push(bear_ob_boxes, b)
 
 // OB無効化（closeがOBを完全に割ったら削除）
 int _bull_obi = array.size(bull_ob_lo) - 1
@@ -185,12 +203,20 @@ while _bull_obi >= 0
     if close < array.get(bull_ob_lo, _bull_obi)
         array.remove(bull_ob_lo, _bull_obi)
         array.remove(bull_ob_hi, _bull_obi)
+        box.delete(array.get(bull_ob_boxes, _bull_obi))
+        array.remove(bull_ob_boxes, _bull_obi)
+    else
+        box.set_right(array.get(bull_ob_boxes, _bull_obi), bar_index)
     _bull_obi -= 1
 int _bear_obi = array.size(bear_ob_lo) - 1
 while _bear_obi >= 0
     if close > array.get(bear_ob_hi, _bear_obi)
         array.remove(bear_ob_lo, _bear_obi)
         array.remove(bear_ob_hi, _bear_obi)
+        box.delete(array.get(bear_ob_boxes, _bear_obi))
+        array.remove(bear_ob_boxes, _bear_obi)
+    else
+        box.set_right(array.get(bear_ob_boxes, _bear_obi), bar_index)
     _bear_obi -= 1
 
 // OBヒット判定（次バー以降のプルバックで価格がOB内に戻ったか）
@@ -230,15 +256,26 @@ var array<float> bear_fvg_lo  = array.new<float>()
 var array<float> bear_fvg_hi  = array.new<float>()
 var array<float> bear_fvg_mid = array.new<float>()
 
+var array<box> bull_fvg_boxes = array.new<box>()
+var array<box> bear_fvg_boxes = array.new<box>()
+
 if high[2] < low[0] and (low[0] - high[2]) >= fvg_min_size
     array.push(bull_fvg_lo,  high[2])
     array.push(bull_fvg_hi,  low[0])
     array.push(bull_fvg_mid, (high[2] + low[0]) / 2.0)
+    b = box.new(bar_index - 2, low[0], bar_index + 50, high[2],
+                border_color = fvg_show ? color.new(color.green, 70) : na,
+                bgcolor      = fvg_show ? color.new(color.green, 85) : na)
+    array.push(bull_fvg_boxes, b)
 
 if low[2] > high[0] and (low[2] - high[0]) >= fvg_min_size
     array.push(bear_fvg_lo,  high[0])
     array.push(bear_fvg_hi,  low[2])
     array.push(bear_fvg_mid, (high[0] + low[2]) / 2.0)
+    b = box.new(bar_index - 2, low[2], bar_index + 50, high[0],
+                border_color = fvg_show ? color.new(color.red, 70) : na,
+                bgcolor      = fvg_show ? color.new(color.red, 85) : na)
+    array.push(bear_fvg_boxes, b)
 
 // Bull FVG 無効化（close <= mid で50%以上埋まり）
 int _bfi = array.size(bull_fvg_lo) - 1
@@ -247,6 +284,10 @@ while _bfi >= 0
         array.remove(bull_fvg_lo,  _bfi)
         array.remove(bull_fvg_hi,  _bfi)
         array.remove(bull_fvg_mid, _bfi)
+        box.delete(array.get(bull_fvg_boxes, _bfi))
+        array.remove(bull_fvg_boxes, _bfi)
+    else
+        box.set_right(array.get(bull_fvg_boxes, _bfi), bar_index + 50)
     _bfi -= 1
 
 // Bear FVG 無効化（close >= mid で50%以上埋まり）
@@ -256,6 +297,10 @@ while _bbi >= 0
         array.remove(bear_fvg_lo,  _bbi)
         array.remove(bear_fvg_hi,  _bbi)
         array.remove(bear_fvg_mid, _bbi)
+        box.delete(array.get(bear_fvg_boxes, _bbi))
+        array.remove(bear_fvg_boxes, _bbi)
+    else
+        box.set_right(array.get(bear_fvg_boxes, _bbi), bar_index + 50)
     _bbi -= 1
 
 // FVG ヒット判定
@@ -300,6 +345,11 @@ var array<float> sup_lo   = array.new<float>()
 var array<float> sup_hi   = array.new<float>()
 var array<int>   sup_bars = array.new<int>()
 
+var array<box>   dem_boxes  = array.new<box>()
+var array<label> dem_labels = array.new<label>()
+var array<box>   sup_boxes  = array.new<box>()
+var array<label> sup_labels = array.new<label>()
+
 bool is_bearish = close < open
 bool is_bullish = close > open
 
@@ -322,6 +372,15 @@ if not na(dem_cand_bar)
         array.push(dem_lo,   dem_cand_low)
         array.push(dem_hi,   dem_cand_high)
         array.push(dem_bars, bar_index)
+        b = box.new(dem_cand_bar, dem_cand_high, bar_index, dem_cand_low,
+                    border_color = zone_show ? color.new(color.blue, 70) : na,
+                    bgcolor      = zone_show ? color.new(color.blue, 85) : na)
+        lbl = label.new(dem_cand_bar, dem_cand_low, "D",
+                        color     = zone_show ? color.new(color.blue, 50) : na,
+                        textcolor = zone_show ? color.white : na,
+                        style=label.style_label_up, size=size.small)
+        array.push(dem_boxes,  b)
+        array.push(dem_labels, lbl)
         dem_cand_bar := na
 
 if not na(sup_cand_bar)
@@ -331,6 +390,15 @@ if not na(sup_cand_bar)
         array.push(sup_lo,   sup_cand_low)
         array.push(sup_hi,   sup_cand_high)
         array.push(sup_bars, bar_index)
+        b = box.new(sup_cand_bar, sup_cand_high, bar_index, sup_cand_low,
+                    border_color = zone_show ? color.new(color.orange, 70) : na,
+                    bgcolor      = zone_show ? color.new(color.orange, 85) : na)
+        lbl = label.new(sup_cand_bar, sup_cand_high, "S",
+                        color     = zone_show ? color.new(color.orange, 50) : na,
+                        textcolor = zone_show ? color.white : na,
+                        style=label.style_label_down, size=size.small)
+        array.push(sup_boxes,  b)
+        array.push(sup_labels, lbl)
         sup_cand_bar := na
 
 // Zone 無効化・age管理
@@ -340,6 +408,12 @@ while _dbi >= 0
         array.remove(dem_lo,   _dbi)
         array.remove(dem_hi,   _dbi)
         array.remove(dem_bars, _dbi)
+        box.delete(array.get(dem_boxes, _dbi))
+        label.delete(array.get(dem_labels, _dbi))
+        array.remove(dem_boxes,  _dbi)
+        array.remove(dem_labels, _dbi)
+    else
+        box.set_right(array.get(dem_boxes, _dbi), bar_index + 50)
     _dbi -= 1
 
 int _sbi = array.size(sup_lo) - 1
@@ -348,6 +422,12 @@ while _sbi >= 0
         array.remove(sup_lo,   _sbi)
         array.remove(sup_hi,   _sbi)
         array.remove(sup_bars, _sbi)
+        box.delete(array.get(sup_boxes, _sbi))
+        label.delete(array.get(sup_labels, _sbi))
+        array.remove(sup_boxes,  _sbi)
+        array.remove(sup_labels, _sbi)
+    else
+        box.set_right(array.get(sup_boxes, _sbi), bar_index + 50)
     _sbi -= 1
 
 // Zone ヒット判定
@@ -426,6 +506,37 @@ bool rsi_divergence = false
 // ⚠️ バックログ: 1ヶ月以内に実装すること
 // 理由: -0.30 は全テーブル最大マイナス項目。false固定では防御が無効
 bool news_nearby = false
+
+// ─── BOS・CHoCHラベル ─────────────────────────────────────────────────────────
+if bos_show and bullish_bos
+    label.new(bar_index, low - atr5 * 0.8, "BOS↑",
+              color=color.green, textcolor=color.white,
+              style=label.style_label_up, size=size.small)
+if bos_show and bearish_bos
+    label.new(bar_index, high + atr5 * 0.8, "BOS↓",
+              color=color.red, textcolor=color.white,
+              style=label.style_label_down, size=size.small)
+if bullish_choch
+    label.new(bar_index, low - atr5 * 0.5, "CHoCH↑",
+              color=color.green, textcolor=color.white,
+              style=label.style_label_up, size=size.small)
+if bearish_choch
+    label.new(bar_index, high + atr5 * 0.5, "CHoCH↓",
+              color=color.red, textcolor=color.white,
+              style=label.style_label_down, size=size.small)
+
+// ─── レジームラベル ──────────────────────────────────────────────────────────
+bool regime_changed = regime != regime[1]
+if regime_changed
+    string lbl_txt = regime == "TREND"    ? (direction == "buy" ? "T↑" : "T↓") :
+                     regime == "BREAKOUT" ? (direction == "buy" ? "B↑" : "B↓") :
+                     regime == "REVERSAL" ? (direction == "buy" ? "R↑" : "R↓") : "RNG"
+    color lbl_col  = regime == "TREND"    ? color.green  :
+                     regime == "BREAKOUT" ? color.blue   :
+                     regime == "REVERSAL" ? color.red    : color.gray
+    label.new(bar_index, high + atr5 * 1.2, lbl_txt,
+              color=lbl_col, textcolor=color.white,
+              style=label.style_label_down, size=size.small)
 
 // ─── アラート発火条件 ──────────────────────────────────────────────────────────
 // Pine Scriptはレジーム検出とdirection確定のみを担当する。
