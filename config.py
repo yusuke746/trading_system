@@ -5,7 +5,7 @@ AI Trading System v2.0
 
 SYSTEM_CONFIG = {
     # ── 取引設定 ────────────────────────────────
-    "symbol":               "GOLD",   # XMTrading のシンボル名（XAUUSD ではない）
+    "symbol":               "GOLD#",  # XMTrading のシンボル名（XAUUSD ではない）
     "max_positions":          5,       # 同時保有可能な最大ポジション数
     "max_total_risk_percent": 0.10,    # 口座残高の10%を上限とする合計リスクエクスポージャー上限（max_positions=5対応）
     "min_free_margin":        500.0,
