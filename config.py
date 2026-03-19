@@ -222,6 +222,5 @@ SCORING_CONFIG = {
 # ── 高インパクト経済指標スケジュール（UTC）──────────────────
 HIGH_IMPACT_UTC_TIMES = [
     {"weekday": 4, "hour_start": 12, "hour_end": 14, "name": "NFP"},
-    {"weekday": 2, "hour_start": 21, "hour_end": 24, "name": "FOMC"},
-    {"weekday": 3, "hour_start": 3,  "hour_end": 6,  "name": "BOJ"},
+    {"weekday": 2, "hour_start": 18, "hour_end": 20, "name": "FOMC"},
 ]
