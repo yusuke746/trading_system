@@ -46,7 +46,7 @@ from health_monitor    import HealthMonitor, init_mt5
 from revaluator        import Revaluator
 from executor          import execute_order
 from dashboard         import dashboard_bp
-from logger_module     import log_event
+from logger_module     import log_event, log_scoring_history
 from config            import SYSTEM_CONFIG
 import discord_notifier
 
@@ -106,6 +106,12 @@ def webhook():
         from scoring_engine import calculate_score
         result = calculate_score(alert)
         decision = result["decision"]
+
+        # スコアリング結果をDBに記録（approve/reject/wait 全ケース）
+        try:
+            log_scoring_history(alert, result)
+        except Exception:
+            pass
 
         logger.info(
             "📊 scoring: regime=%s dir=%s decision=%s score=%.3f",

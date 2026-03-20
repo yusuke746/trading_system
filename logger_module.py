@@ -172,6 +172,25 @@ def update_wait_history(wait_id: int, reeval_count: int,
     conn.commit()
 
 
+# ─────────────────────────── scoring_history ──────────────
+def log_scoring_history(alert: dict, result: dict) -> None:
+    import json
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO scoring_history
+        (created_at, signal_direction, regime, total_score, decision, breakdown_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        now_utc(),
+        alert.get("direction"),
+        alert.get("regime"),
+        result.get("score"),
+        result.get("decision"),
+        json.dumps(result.get("score_breakdown", {})),
+    ))
+    conn.commit()
+
+
 # ─────────────────────────── system_events ────────────────
 def log_event(event: str, detail: str = None, level: str = "INFO"):
     conn = get_connection()
