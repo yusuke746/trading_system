@@ -87,21 +87,6 @@ def webhook():
             logger.warning("必須フィールド欠損: %s", missing)
             return jsonify({"error": f"missing fields: {missing}"}), 400
 
-        # Discord通知: シグナル受信（スコアリング前）
-        try:
-            discord_notifier.notify(
-                title="📡 シグナル受信",
-                description=f"regime=`{alert.get('regime')}` dir=`{alert.get('direction')}`",
-                color=0x808080,
-                fields={
-                    "regime":    alert.get("regime", "—"),
-                    "direction": alert.get("direction", "—"),
-                    "price":     alert.get("price", "—"),
-                },
-            )
-        except Exception:
-            pass
-
         # スコアリング（LLM不使用・ルールベース）
         from scoring_engine import calculate_score
         result = calculate_score(alert)
@@ -126,10 +111,58 @@ def webhook():
             f"decision={decision} score={result['score']:.3f}",
         )
 
+        # Discord通知・MT5発注をバックグラウンドで実行し、TradingViewへ即時応答する
+        # （同期実行するとDiscord HTTP × 3回 + MT5発注でTradingViewの10秒タイムアウトを超えるため）
+        threading.Thread(
+            target=_process_alert_async,
+            args=(alert, result, decision),
+            daemon=True,
+            name="AlertProcessor",
+        ).start()
+
         if decision == "approve":
+            return jsonify({"status": "approved", "score": result["score"]}), 200
+        elif decision == "wait":
+            logger.info("⏳ wait: score=%.3f", result["score"])
+            return jsonify({"status": "wait", "score": result["score"]}), 200
+        else:
+            logger.info("❌ reject: reasons=%s", result.get("reject_reasons"))
+            return jsonify({
+                "status":  "rejected",
+                "reasons": result.get("reject_reasons"),
+            }), 200
+
+    except Exception as e:
+        logger.error("Webhook例外: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+def _process_alert_async(alert: dict, result: dict, decision: str) -> None:
+    """
+    Webhook応答後にバックグラウンドスレッドで実行される処理。
+    Discord通知 + MT5発注を行う。TradingViewのタイムアウトに影響しない。
+    """
+    try:
+        # Discord通知: シグナル受信
+        try:
+            discord_notifier.notify(
+                title="📡 シグナル受信",
+                description=f"regime=`{alert.get('regime')}` dir=`{alert.get('direction')}`",
+                color=0x808080,
+                fields={
+                    "regime":    alert.get("regime", "—"),
+                    "direction": alert.get("direction", "—"),
+                    "price":     alert.get("price", "—"),
+                },
+            )
+        except Exception:
+            pass
+
+        if decision == "approve":
+            top_flags = [k for k, v in result.get("score_breakdown", {}).items() if v > 0]
+
             # Discord通知: エントリー承認
             try:
-                top_flags = [k for k, v in result.get("score_breakdown", {}).items() if v > 0]
                 discord_notifier.notify(
                     title="✅ エントリー承認 → 発注中...",
                     description=(
@@ -150,7 +183,7 @@ def webhook():
             if is_high_impact_period():
                 logger.info("🚫 高インパクト時間帯のため執行スキップ")
                 log_event("execution_blocked", "high_impact_period")
-                return jsonify({"status": "blocked", "reason": "high_impact_period"}), 200
+                return
 
             # execute_order 用の trigger / ai_result を構築
             raw_symbol = alert.get("symbol", "XAUUSD")
@@ -185,19 +218,16 @@ def webhook():
                 _score     = result["score"]
                 _top_flags = ", ".join(top_flags[:5]) or "—"
                 if exec_result.get("success"):
-                    # 発注成功：全情報を含む詳細通知
                     ep  = exec_result.get("entry_price", 0)
                     sl  = exec_result.get("sl_price",    0)
                     tp  = exec_result.get("tp_price",    0)
                     lot = exec_result.get("lot_size",    0)
                     atr = exec_result.get("atr_dollar",  0)
                     sl_dist = abs(ep - sl)
-                    risk_usd = sl_dist * lot * 100  # おおよそのリスク金額（ドル）
+                    risk_usd = sl_dist * lot * 100
                     discord_notifier.notify(
                         title=f"🚀 発注成功 | {_regime} {_direction.upper()}",
-                        description=(
-                            f"Ticket: `{exec_result.get('ticket')}`"
-                        ),
+                        description=f"Ticket: `{exec_result.get('ticket')}`",
                         color=0x00CC44,
                         fields={
                             "エントリー": f"{ep:.2f}",
@@ -212,11 +242,10 @@ def webhook():
                         },
                     )
                 else:
-                    # 発注失敗：理由を明示
                     reason = exec_result.get("reason", "不明")
                     discord_notifier.notify(
                         title=f"❌ 発注失敗 | {_regime} {_direction.upper()}",
-                        description=f"承認されたが発注に失敗しました。",
+                        description="承認されたが発注に失敗しました。",
                         color=0xFF4444,
                         fields={
                             "失敗理由":   reason,
@@ -227,14 +256,7 @@ def webhook():
             except Exception:
                 pass
 
-            return jsonify({"status": "approved", "exec": exec_result}), 200
-
-        elif decision == "wait":
-            logger.info("⏳ wait: score=%.3f", result["score"])
-            return jsonify({"status": "wait", "score": result["score"]}), 200
-
-        else:  # reject
-            logger.info("❌ reject: reasons=%s", result.get("reject_reasons"))
+        elif decision == "reject":
             # Discord通知: エントリー否決
             try:
                 reasons = result.get("reject_reasons") or []
@@ -253,14 +275,9 @@ def webhook():
                 )
             except Exception:
                 pass
-            return jsonify({
-                "status":  "rejected",
-                "reasons": result.get("reject_reasons"),
-            }), 200
 
     except Exception as e:
-        logger.error("Webhook例外: %s", e, exc_info=True)
-        return jsonify({"error": str(e)}), 500
+        logger.error("_process_alert_async 例外: %s", e, exc_info=True)
 
 
 # ─────────────────────────── 死活確認 ─────────────────────────
