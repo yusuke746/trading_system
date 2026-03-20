@@ -108,10 +108,6 @@ class LossAnalyzer:
                         pos.time, tz=timezone.utc).isoformat(),
                 }
 
-            # 損失アラート
-            if pos.profit < LOSS_ALERT_USD and self._notifier:
-                self._notifier.notify_loss_alert(pos.profit, ticket)
-
         # 決済検知（追跡中だが現在ポジションにない）
         closed_tickets = set(self._open_positions.keys()) - current_tickets
         for ticket in closed_tickets:
