@@ -675,7 +675,28 @@ if show_debug
                                             text_color=should_alert ? color.lime : color.gray,
                                             bgcolor=color.new(color.black, 70))
 
-// ─── CSV出力アラート（全バー発火・TradingViewアラート履歴エクスポート用） ──────
-if barstate.isconfirmed
-    csv_line = str.format_time(time, "yyyy-MM-dd HH:mm", "UTC") + "," + str.tostring(open, "#.###") + "," + str.tostring(high, "#.###") + "," + str.tostring(low, "#.###") + "," + str.tostring(close, "#.###") + "," + regime + "," + direction + "," + str.tostring(h1_adx, "#.#") + "," + str.tostring(m15_adx, "#.#") + "," + (choch_confirmed ? "1" : "0") + "," + (fvg_hit ? "1" : "0") + "," + (zone_hit ? "1" : "0") + "," + (bos_confirmed ? "1" : "0") + "," + (ob_aligned ? "1" : "0") + "," + (sweep_detected ? "1" : "0") + "," + session + "," + str.tostring(atr5, "#.###") + "," + str.tostring(m15_atr_ratio, "#.##") + "," + h1_direction + "," + (should_alert ? "1" : "0")
-    alert(csv_line, alert.freq_once_per_bar_close)
+// ─── CSV Export用 plot群（TradingView「チャートデータをエクスポート」用）──────
+// 文字列は数値エンコード。regime: TREND=1, BREAKOUT=2, RANGE=3, REVERSAL=4
+csv_regime    = regime == "TREND" ? 1 : regime == "BREAKOUT" ? 2 : regime == "REVERSAL" ? 4 : 3
+// direction: buy=1, sell=-1, none=0
+csv_direction = direction == "buy" ? 1 : direction == "sell" ? -1 : 0
+// h1_direction: bull=1, bear=-1
+csv_h1dir     = h1_direction == "bull" ? 1 : h1_direction == "bear" ? -1 : 0
+// session: london_ny=5, london=4, ny=3, tokyo=2, off=1
+csv_session   = session == "london_ny" ? 5 : session == "london" ? 4 : session == "ny" ? 3 : session == "tokyo" ? 2 : 1
+
+plot(csv_regime,                title="regime",        display=display.none)
+plot(csv_direction,             title="direction",     display=display.none)
+plot(h1_adx,                    title="h1_adx",        display=display.none)
+plot(m15_adx,                   title="m15_adx",       display=display.none)
+plot(choch_confirmed ? 1 : 0,   title="choch",         display=display.none)
+plot(fvg_hit         ? 1 : 0,   title="fvg",           display=display.none)
+plot(zone_hit        ? 1 : 0,   title="zone",          display=display.none)
+plot(bos_confirmed   ? 1 : 0,   title="bos",           display=display.none)
+plot(ob_aligned      ? 1 : 0,   title="ob",            display=display.none)
+plot(sweep_detected  ? 1 : 0,   title="sweep",         display=display.none)
+plot(csv_session,               title="session",       display=display.none)
+plot(atr5,                      title="atr",           display=display.none)
+plot(m15_atr_ratio,             title="atr_ratio",     display=display.none)
+plot(csv_h1dir,                 title="h1_direction",  display=display.none)
+plot(should_alert    ? 1 : 0,   title="alert_fired",   display=display.none)
