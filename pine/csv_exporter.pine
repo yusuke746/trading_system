@@ -376,9 +376,7 @@ bool sweep_detected = sweep_low_pierce or sweep_high_pierce
 var int last_alert_bar = na
 bool cooldown_ok = na(last_alert_bar) or (bar_index - last_alert_bar) > cooldown_bars
 
-bool trend_entry_bos = (regime == "TREND"
-    and (bos_pending_bull or bos_pending_bear)
-    and ob_aligned)
+bool trend_entry_bos = regime == "TREND" and (bos_pending_bull or bos_pending_bear) and ob_aligned
 
 bool smc_any      = choch_confirmed or fvg_hit or zone_hit or bos_confirmed or ob_aligned
 bool trend_alert  = regime == "TREND" and direction != "none" and smc_any
@@ -399,12 +397,10 @@ if barstate.isconfirmed and should_alert
 // direction: buy=1, sell=-1, none=0
 // h1_direction: bull=1, bear=-1
 // session: london_ny=5, london=4, ny=3, tokyo=2, off=1
-csv_regime    = regime == "TREND" ? 1 : regime == "BREAKOUT" ? 2 :
-                regime == "REVERSAL" ? 4 : 3
+csv_regime    = regime == "TREND" ? 1 : regime == "BREAKOUT" ? 2 : regime == "REVERSAL" ? 4 : 3
 csv_direction = direction == "buy" ? 1 : direction == "sell" ? -1 : 0
 csv_h1dir     = h1_direction == "bull" ? 1 : h1_direction == "bear" ? -1 : 0
-csv_session   = session == "london_ny" ? 5 : session == "london" ? 4 :
-                session == "ny" ? 3 : session == "tokyo" ? 2 : 1
+csv_session   = session == "london_ny" ? 5 : session == "london" ? 4 : session == "ny" ? 3 : session == "tokyo" ? 2 : 1
 
 // ─── plot ─────────────────────────────────────────────────────────────────────
 plot(csv_regime,                title="regime",       display=display.all)
