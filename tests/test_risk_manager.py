@@ -61,6 +61,15 @@ def _today() -> str:
 
 class TestCheckDailyLossLimit(unittest.TestCase):
 
+    def setUp(self):
+        # demo_mode=True のときはリミットチェックがスキップされるため、
+        # テスト中は False に上書きして実際のロジックを検証する
+        self._demo_patcher = patch.dict(risk_manager.SYSTEM_CONFIG, {"demo_mode": False})
+        self._demo_patcher.start()
+
+    def tearDown(self):
+        self._demo_patcher.stop()
+
     def _run(self, rows):
         conn = _make_db(rows)
         # balance=4000 / max_daily_loss_percent=-5% → limit = 4000×(-5/100) = -200
@@ -129,6 +138,15 @@ class TestCheckDailyLossLimit(unittest.TestCase):
 # ──────────────────────────────────────────────────────────
 
 class TestCheckConsecutiveLosses(unittest.TestCase):
+
+    def setUp(self):
+        # demo_mode=True のときはリミットチェックがスキップされるため、
+        # テスト中は False に上書きして実際のロジックを検証する
+        self._demo_patcher = patch.dict(risk_manager.SYSTEM_CONFIG, {"demo_mode": False})
+        self._demo_patcher.start()
+
+    def tearDown(self):
+        self._demo_patcher.stop()
 
     def _run(self, outcomes: list[str]):
         """

@@ -60,6 +60,10 @@ def check_daily_loss_limit() -> dict:
             "reason": str
         }
     """
+    if SYSTEM_CONFIG.get("demo_mode", False):
+        logger.info("demo_mode: 日次損失制限スキップ")
+        return {"blocked": False, "daily_pnl_usd": 0.0, "reason": "demo_mode: 損失制限スキップ"}
+
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     try:
@@ -116,6 +120,11 @@ def check_consecutive_losses() -> dict:
             "reset_hours":       int,   # 適用中のリセット時間（0=無効）
         }
     """
+    if SYSTEM_CONFIG.get("demo_mode", False):
+        logger.info("demo_mode: 連続損失制限スキップ")
+        return {"blocked": False, "consecutive_count": 0,
+                "reason": "demo_mode: 損失制限スキップ", "reset_hours": CONSECUTIVE_LOSS_RESET_HOURS}
+
     from datetime import timedelta
 
     n           = MAX_CONSECUTIVE_LOSS
