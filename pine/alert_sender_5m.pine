@@ -136,16 +136,18 @@ bearish_choch = not na(last_swing_low)  and close < last_swing_low  and close[1]
 bool choch_confirmed = direction == "buy"  ? bullish_choch :
      direction == "sell" ? bearish_choch : false
 
+// ─── BOS（Break of Structure）────────────────────────────────────────────────
+// TRENDレジームでのトレンド継続確認
+// CHoCHとは別変数。エントリートリガーではなくフラグ管理に使用する
+// ※ CHoCHリセットより先に評価しないとlast_swing_highがnaになりBOSが永遠にfalseになる
+bullish_bos = regime == "TREND" and not na(last_swing_high) and close > last_swing_high and close[1] <= last_swing_high and h1_direction == "bull"
+bearish_bos = regime == "TREND" and not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low  and h1_direction == "bear"
+
+// CHoCHリセット（BOS評価済みなので問題なし）
 if bullish_choch
     last_swing_high := na
 if bearish_choch
     last_swing_low := na
-
-// ─── BOS（Break of Structure）────────────────────────────────────────────────
-// TRENDレジームでのトレンド継続確認
-// CHoCHとは別変数。エントリートリガーではなくフラグ管理に使用する
-bullish_bos = regime == "TREND" and not na(last_swing_high) and close > last_swing_high and close[1] <= last_swing_high and h1_direction == "bull"
-bearish_bos = regime == "TREND" and not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low  and h1_direction == "bear"
 
 // BOS Pending管理（プルバック待ちフラグ）
 // bos_pendingがtrueの間だけOBヒットをエントリー条件として有効化する

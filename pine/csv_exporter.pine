@@ -124,14 +124,16 @@ bearish_choch = not na(last_swing_low)  and close < last_swing_low  and close[1]
 bool choch_confirmed = direction == "buy"  ? bullish_choch :
      direction == "sell" ? bearish_choch : false
 
+// ─── BOS（Break of Structure）────────────────────────────────────────────────
+// ※ CHoCHリセットより先に評価しないとlast_swing_highがnaになりBOSが永遠にfalseになる
+bullish_bos = regime == "TREND" and not na(last_swing_high) and close > last_swing_high and close[1] <= last_swing_high and h1_direction == "bull"
+bearish_bos = regime == "TREND" and not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low  and h1_direction == "bear"
+
+// CHoCHリセット（BOS評価済みなので問題なし）
 if bullish_choch
     last_swing_high := na
 if bearish_choch
     last_swing_low := na
-
-// ─── BOS（Break of Structure）────────────────────────────────────────────────
-bullish_bos = regime == "TREND" and not na(last_swing_high) and close > last_swing_high and close[1] <= last_swing_high and h1_direction == "bull"
-bearish_bos = regime == "TREND" and not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low  and h1_direction == "bear"
 
 var bool bos_pending_bull = false
 var bool bos_pending_bear = false
