@@ -38,8 +38,10 @@ adx_calc(h, l, c, period) =>
     minus_dm = (down > up and down > 0) ? down : 0.0
     tr       = math.max(math.max(h - l, math.abs(h - nz(c[1], c))), math.abs(l - nz(c[1], c)))
     atr_s    = ta.rma(tr, period)
-    plus_di  = atr_s != 0 ? 100.0 * ta.rma(plus_dm,  period) / atr_s : 0.0
-    minus_di = atr_s != 0 ? 100.0 * ta.rma(minus_dm, period) / atr_s : 0.0
+    plus_dm_rma  = ta.rma(plus_dm,  period)
+    minus_dm_rma = ta.rma(minus_dm, period)
+    plus_di  = atr_s != 0 ? 100.0 * plus_dm_rma  / atr_s : 0.0
+    minus_di = atr_s != 0 ? 100.0 * minus_dm_rma / atr_s : 0.0
     di_sum   = plus_di + minus_di
     dx       = di_sum != 0 ? 100.0 * math.abs(plus_di - minus_di) / di_sum : 0.0
     ta.rma(dx, period)
