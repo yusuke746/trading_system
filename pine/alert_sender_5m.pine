@@ -266,6 +266,8 @@ var array<float> bear_fvg_mid = array.new<float>()
 
 var array<box> bull_fvg_boxes = array.new<box>()
 var array<box> bear_fvg_boxes = array.new<box>()
+var array<int> bull_fvg_bars = array.new<int>()
+var array<int> bear_fvg_bars = array.new<int>()
 
 if high[2] < low[0] and (low[0] - high[2]) >= fvg_min_size
     array.push(bull_fvg_lo,  high[2])
@@ -275,6 +277,7 @@ if high[2] < low[0] and (low[0] - high[2]) >= fvg_min_size
                 border_color = fvg_show ? color.new(color.green, 70) : na,
                 bgcolor      = fvg_show ? color.new(color.green, 85) : na)
     array.push(bull_fvg_boxes, b)
+    array.push(bull_fvg_bars, bar_index)
 
 if low[2] > high[0] and (low[2] - high[0]) >= fvg_min_size
     array.push(bear_fvg_lo,  high[0])
@@ -284,14 +287,17 @@ if low[2] > high[0] and (low[2] - high[0]) >= fvg_min_size
                 border_color = fvg_show ? color.new(color.red, 70) : na,
                 bgcolor      = fvg_show ? color.new(color.red, 85) : na)
     array.push(bear_fvg_boxes, b)
+    array.push(bear_fvg_bars, bar_index)
 
 // Bull FVG 無効化（close <= mid で50%以上埋まり）
 int _bfi = array.size(bull_fvg_lo) - 1
 while _bfi >= 0
-    if close <= array.get(bull_fvg_mid, _bfi)
+    bool _bfv_old = (bar_index - array.get(bull_fvg_bars, _bfi)) > zone_max_age
+    if close <= array.get(bull_fvg_mid, _bfi) or _bfv_old
         array.remove(bull_fvg_lo,  _bfi)
         array.remove(bull_fvg_hi,  _bfi)
         array.remove(bull_fvg_mid, _bfi)
+        array.remove(bull_fvg_bars, _bfi)
         box.delete(array.get(bull_fvg_boxes, _bfi))
         array.remove(bull_fvg_boxes, _bfi)
     else
@@ -301,10 +307,12 @@ while _bfi >= 0
 // Bear FVG 無効化（close >= mid で50%以上埋まり）
 int _bbi = array.size(bear_fvg_lo) - 1
 while _bbi >= 0
-    if close >= array.get(bear_fvg_mid, _bbi)
+    bool _bbv_old = (bar_index - array.get(bear_fvg_bars, _bbi)) > zone_max_age
+    if close >= array.get(bear_fvg_mid, _bbi) or _bbv_old
         array.remove(bear_fvg_lo,  _bbi)
         array.remove(bear_fvg_hi,  _bbi)
         array.remove(bear_fvg_mid, _bbi)
+        array.remove(bear_fvg_bars, _bbi)
         box.delete(array.get(bear_fvg_boxes, _bbi))
         array.remove(bear_fvg_boxes, _bbi)
     else
