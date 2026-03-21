@@ -672,3 +672,29 @@ if show_debug
     table.cell(t, 1, 11, str.tostring(should_alert),
                                             text_color=should_alert ? color.lime : color.gray,
                                             bgcolor=color.new(color.black, 70))
+
+// ─── CSV出力用アラート（全バー発火・TradingViewアラート履歴エクスポート用） ────
+alertcondition(
+    barstate.isconfirmed,
+    title   = "CSV Export - All Bars",
+    message =
+        str.format_time(time, "yyyy-MM-dd HH:mm", "UTC")          + "," +
+        str.tostring(open,          "#.###")                       + "," +
+        str.tostring(high,          "#.###")                       + "," +
+        str.tostring(low,           "#.###")                       + "," +
+        str.tostring(close,         "#.###")                       + "," +
+        regime                                                     + "," +
+        direction                                                  + "," +
+        str.tostring(h1_adx,        "#.#")                         + "," +
+        str.tostring(m15_adx,       "#.#")                         + "," +
+        (choch_confirmed ? "1" : "0")                              + "," +
+        (fvg_hit         ? "1" : "0")                              + "," +
+        (zone_hit        ? "1" : "0")                              + "," +
+        (bos_confirmed   ? "1" : "0")                              + "," +
+        (ob_aligned      ? "1" : "0")                              + "," +
+        (sweep_detected  ? "1" : "0")                              + "," +
+        session                                                    + "," +
+        str.tostring(atr5,          "#.###")                       + "," +
+        str.tostring(m15_atr_ratio, "#.##")                        + "," +
+        h1_direction                                               + "," +
+        (should_alert    ? "1" : "0"))
