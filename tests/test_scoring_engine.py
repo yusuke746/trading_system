@@ -395,19 +395,20 @@ class TestSessionOffPenalty(unittest.TestCase):
         self.assertLess(result["score_breakdown"]["session_off"], 0)
 
     def test_session_london_ny_bonus(self):
-        """session=london_ny → +0.10 の加点"""
+        """session=london_ny → -0.10 の減点（実績データPF=0.89に基づき逆転修正）"""
         alert = _make_alert(session="london_ny")
         result = calculate_score(alert)
 
         self.assertIn("session_london_ny", result["score_breakdown"])
-        self.assertGreater(result["score_breakdown"]["session_london_ny"], 0)
+        self.assertLess(result["score_breakdown"]["session_london_ny"], 0)
 
     def test_session_ny_no_change(self):
-        """session=ny → 加減点なし（session_ny は 0.00）"""
+        """session=ny → +0.05 の加点（実績データPF=1.07に基づき改善）"""
         alert = _make_alert(session="ny")
         result = calculate_score(alert)
 
-        self.assertNotIn("session_ny", result["score_breakdown"])
+        self.assertIn("session_ny", result["score_breakdown"])
+        self.assertGreater(result["score_breakdown"]["session_ny"], 0)
 
 
 class TestReversalRejected(unittest.TestCase):
@@ -494,25 +495,25 @@ class TestApproveThreshold(unittest.TestCase):
     )
 
     def test_choch_london_ny_approve(self):
-        """CHoCH単体 + london_ny → approve（score=0.30 >= 0.15）"""
+        """CHoCH単体 + london_ny → wait（score=0.10-0.10=0.00 >= wait_threshold=0.00）"""
         alert = _make_alert(choch_confirmed=True, session="london_ny", **self._ISOLATED)
         result = calculate_score(alert)
-        self.assertEqual(result["decision"], "approve")
+        self.assertEqual(result["decision"], "wait")
 
     def test_choch_london_approve(self):
-        """CHoCH単体 + london → approve（score=0.25 >= 0.15）"""
+        """CHoCH単体 + london → reject（score=0.10-0.15=-0.05 < wait_threshold=0.00）"""
         alert = _make_alert(choch_confirmed=True, session="london", **self._ISOLATED)
         result = calculate_score(alert)
-        self.assertEqual(result["decision"], "approve")
+        self.assertEqual(result["decision"], "reject")
 
     def test_choch_ny_approve(self):
-        """CHoCH単体 + ny → approve（score=0.20 >= 0.15）"""
+        """CHoCH単体 + ny → wait（score=0.10+0.05=0.15 < approve_threshold=0.40, >= 0.00）"""
         alert = _make_alert(choch_confirmed=True, session="ny", **self._ISOLATED)
         result = calculate_score(alert)
-        self.assertEqual(result["decision"], "approve")
+        self.assertEqual(result["decision"], "wait")
 
     def test_choch_tokyo_wait(self):
-        """CHoCH単体 + tokyo → wait（score=0.10 < 0.15）"""
+        """CHoCH単体 + tokyo → wait（score=0.10+0.10=0.20 < approve_threshold=0.40）"""
         alert = _make_alert(choch_confirmed=True, session="tokyo", **self._ISOLATED)
         result = calculate_score(alert)
         self.assertEqual(result["decision"], "wait")

@@ -178,33 +178,42 @@ SCORING_CONFIG = {
     # Pine Script フラット JSON を直接受け取る新アーキテクチャ用パラメータ。
 
     # --- 判定閾値 ---
-    "approve_threshold":      0.15,   # 新テーブル向け確定値（旧 0.25 から変更）
-    "wait_threshold":         0.00,   # 新テーブル向け確定値（旧 0.10 から変更）
+    # 根拠: bos単独(+0.30)+tokyo(+0.10)=0.40→approve　bos単独+london(-0.15)=0.15→reject
+    "approve_threshold":      0.40,   # CSVデータ分析に基づき再設定（旧 0.15）
+    "wait_threshold":         0.00,
 
-    # --- CHoCH 確認（強い構造転換）---
-    "choch_strong":           0.20,   # choch_confirmed == true
+    # --- BOS関連（実データで最も信頼性が高い） ---
+    "bos_confirmed":          0.30,   # bos単独 PF=1.22 → 高く評価（旧 0.20）
+    "bos_and_sweep":          0.20,   # bos+sweep PF=1.48 → ボーナス（新規追加）
+    "ob_aligned":             0.20,   # OBリテスト（BOSの完成形）
+    "ob_and_fvg":             0.10,   # OB+FVGボーナス
 
-    # --- RSI ダイバージェンス ---
-    "rsi_divergence":         0.15,   # rsi_divergence == true（価格と RSI の逆行確認）
-                                      # ※旧 -0.20（buy+RSI overbought 減点）とは意味が異なる
+    # --- FVG+Zone同時（最高精度だが件数少） ---
+    "fvg_and_zone_overlap":   0.30,   # PF=4.81 → 大幅加点（旧 0.15）
 
-    # --- FVG × Zone の重複ヒットボーナス ---
-    "fvg_and_zone_overlap":   0.15,   # fvg_aligned == true AND zone_aligned == true
+    # --- CHoCH（単独では弱いがBOSと組み合わせで有効） ---
+    "choch_strong":           0.10,   # 単独効果は限定的（旧 0.20）
+
+    # --- FVG単独・Zone単独はペナルティ（Gate3はOR緩和のためスコアで抑制） ---
+    "fvg_only_penalty":      -0.20,   # fvg=1かつzone=0かつbos=0かつob=0（新規追加）
+    "zone_only_penalty":     -0.20,   # zone=1かつfvg=0かつbos=0かつob=0（新規追加）
+
+    # --- RSI ダイバージェンス（未実装のため0固定） ---
+    "rsi_divergence":         0.00,   # TODO: STEP4で正式実装（旧 0.15）
 
     # --- 15M ADX 強度 ---
     "adx_normal":             0.10,   # m15_adx 25〜35（健全なトレンド強度）
-    "adx_reversal_penalty":  -0.10,   # REVERSAL かつ m15_adx > 35（ADX 過熱で REVERSAL 信頼性低下）
+    "adx_reversal_penalty":  -0.10,   # REVERSAL かつ m15_adx > 35
 
     # --- 1H 方向一致 ---
-    "h1_direction_aligned":   0.10,   # h1_direction == "bull" and direction == "buy"
-                                      # h1_direction == "bear" and direction == "sell"
+    "h1_direction_aligned":   0.10,   # h1_direction と direction が一致
 
-    # --- セッション別 ---
-    "session_london_ny":      0.10,   # London/NY オーバーラップ（最高流動性）
-    "session_london":         0.05,   # London オープン
-    "session_ny":             0.00,   # NY セッション（加減点なし）
-    "session_tokyo":         -0.10,   # Tokyo セッション（低流動性）
-    "session_off":           -0.20,   # オフアワーズ（最低流動性）
+    # --- セッション別（実データに基づいて逆転修正） ---
+    "session_tokyo":          0.10,   # 実績PF=1.14（旧 -0.10 から逆転）
+    "session_ny":             0.05,   # 実績PF=1.07（旧 0.00 から改善）
+    "session_off":           -0.05,   # 実績PF=0.93（旧 -0.20 から緩和）
+    "session_london_ny":     -0.10,   # 実績PF=0.89（旧 +0.10 から逆転）
+    "session_london":        -0.15,   # 実績PF=0.83（旧 +0.05 から逆転）
 
     # --- ATR ratio（15M ATR / ATR MA20）---
     "atr_ratio_normal":       0.05,   # 0.8〜1.5 倍（正常ボラティリティ）
@@ -212,11 +221,6 @@ SCORING_CONFIG = {
 
     # --- ニュースフィルター ---
     "news_nearby":           -0.30,   # 高インパクトニュース 30 分前後
-
-    # --- BOS・Order Block（P3追加）---
-    "bos_confirmed":          0.20,   # BOS確認後プルバックでのエントリー
-    "ob_aligned":             0.20,   # OBヒット（方向一致）
-    "ob_and_fvg":             0.10,   # OB+FVG重複ボーナス
 }
 
 # ── 高インパクト経済指標スケジュール（UTC）──────────────────

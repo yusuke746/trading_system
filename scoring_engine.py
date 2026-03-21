@@ -51,6 +51,7 @@ def calculate_score(alert: dict) -> dict:
     _apply_choch_score(alert, _cfg, breakdown)
     _apply_rsi_divergence(alert, _cfg, breakdown)
     _apply_fvg_zone_overlap(alert, _cfg, breakdown)
+    _apply_fvg_zone_penalty(alert, _cfg, breakdown)
     _apply_adx_score(alert, _cfg, breakdown)
     _apply_h1_direction_score(alert, _cfg, breakdown)
     _apply_session_score(alert, _cfg, breakdown)
@@ -164,6 +165,26 @@ def _apply_fvg_zone_overlap(alert: dict, cfg: dict, breakdown: dict) -> None:
         breakdown["fvg_and_zone_overlap"] = cfg["fvg_and_zone_overlap"]
 
 
+def _apply_fvg_zone_penalty(alert: dict, cfg: dict, breakdown: dict) -> None:
+    """FVG単独またはZone単独の場合はペナルティ（bos/obがない場合）"""
+    fvg  = bool(alert.get("fvg_aligned",  False))
+    zone = bool(alert.get("zone_aligned", False))
+    bos  = bool(alert.get("bos_confirmed", False))
+    ob   = bool(alert.get("ob_aligned",   False))
+
+    # BOSもOBも伴わないFVG単独はペナルティ
+    if fvg and not zone and not bos and not ob:
+        val = cfg.get("fvg_only_penalty", -0.20)
+        if val != 0.0:
+            breakdown["fvg_only_penalty"] = val
+
+    # BOSもOBも伴わないZone単独はペナルティ
+    if zone and not fvg and not bos and not ob:
+        val = cfg.get("zone_only_penalty", -0.20)
+        if val != 0.0:
+            breakdown["zone_only_penalty"] = val
+
+
 def _apply_adx_score(alert: dict, cfg: dict, breakdown: dict) -> None:
     """15M ADX による加点・減点"""
     m15_adx = float(alert.get("m15_adx", 0))
@@ -234,9 +255,10 @@ def _apply_bos_ob_score(alert: dict, cfg: dict, breakdown: dict) -> None:
     両方同時にtrueの場合はob_alignedがbos_confirmedを包含するため
     bos_confirmedの加点は省略（二重加点防止）
     """
-    bos = bool(alert.get("bos_confirmed", False))
-    ob  = bool(alert.get("ob_aligned", False))
-    fvg = bool(alert.get("fvg_aligned", False))
+    bos   = bool(alert.get("bos_confirmed", False))
+    ob    = bool(alert.get("ob_aligned", False))
+    fvg   = bool(alert.get("fvg_aligned", False))
+    sweep = bool(alert.get("sweep_detected", False))
     if ob:
         # OBリテスト成立 = BOSパス完成。ob_alignedのみ加点
         breakdown["ob_aligned"] = cfg.get("ob_aligned", 0.20)
@@ -244,4 +266,9 @@ def _apply_bos_ob_score(alert: dict, cfg: dict, breakdown: dict) -> None:
             breakdown["ob_and_fvg"] = cfg.get("ob_and_fvg", 0.10)
     elif bos:
         # BOSは発生しているがOBリテスト未到達 → 加点を抑える
-        breakdown["bos_confirmed"] = cfg.get("bos_confirmed", 0.20)
+        breakdown["bos_confirmed"] = cfg.get("bos_confirmed", 0.30)
+        # BOS+Sweep同時はボーナス加点（PF=1.48）
+        if sweep:
+            bonus = cfg.get("bos_and_sweep", 0.20)
+            if bonus != 0.0:
+                breakdown["bos_and_sweep"] = bonus
