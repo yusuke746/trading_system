@@ -184,7 +184,7 @@ SCORING_CONFIG = {
 
     # --- 判定閾値 ---
     # 根拠: bos単独(+0.30)+tokyo(+0.10)=0.40→approve　bos単独+london(-0.15)=0.15→reject
-    "approve_threshold":      0.40,   # CSVデータ分析に基づき再設定（旧 0.15）
+    "approve_threshold":      0.50,   # CSVデータ分析に基づき再設定（旧 0.40, 2026-03-22）
     "wait_threshold":         0.00,
 
     # --- BOS関連（実データで最も信頼性が高い） ---

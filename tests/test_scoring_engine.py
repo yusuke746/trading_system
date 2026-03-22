@@ -275,8 +275,9 @@ class TestBreakoutApprove(unittest.TestCase):
         """
         BREAKOUT: choch_confirmed=False でもゲート通過。
         fvg_aligned + zone_aligned → fvg_and_zone_overlap ボーナス。
-        score = fvg_and_zone_overlap(0.15) + h1_direction_aligned(0.10)
-                + session_london_ny(0.10) + adx_normal(0.10) = 0.45
+        score = fvg_and_zone_overlap(0.15) + bos_confirmed(0.30)
+                + h1_direction_aligned(0.10) + session_london_ny(0.10)
+                + adx_normal(0.10) = 0.75 >= approve_threshold(0.50)
         """
         alert = _make_alert(
             regime="BREAKOUT",
@@ -287,6 +288,7 @@ class TestBreakoutApprove(unittest.TestCase):
             choch_confirmed=False,  # BREAKOUT はCHoCH不要
             fvg_aligned=True,
             zone_aligned=True,      # overlap: +0.15
+            bos_confirmed=True,     # +0.30 で閾値0.50超え
             session="london_ny",
         )
         result = calculate_score(alert)
