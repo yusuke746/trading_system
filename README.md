@@ -1,4 +1,4 @@
-# AI Trading System v4.3
+# AI Trading System v4.4
 
 **対象:** XAUUSD / GOLD#（XMTrading）　**時間軸:** 5M足　**手法:** SMC（Smart Money Concepts）+ マルチレジーム　**状態:** デモ稼働中
 
@@ -263,7 +263,7 @@ Gate3（SMC条件確認）
     ↓ 通過
 スコア計算（全項目を加算）
     ↓
-合計スコア ≥ 0.40 → approve（発注）
+合計スコア ≥ 0.50 → approve（発注）
 合計スコア ≥ 0.00 → wait（再評価キュー）
 合計スコア < 0.00 → reject（不発注）
 ```
@@ -292,16 +292,20 @@ Gate3（SMC条件確認）
 | 高インパクトニュース前後 | `news_nearby` | **-0.30** | 最大ペナルティ（スプレッド拡大・急変リスク） |
 | RSIダイバージェンス | `rsi_divergence` | **0.00** | 未実装のため無効化（TODO: Phase 5） |
 
-### approve_threshold = 0.40 の設計根拠
+### approve_threshold = 0.50 の設計根拠（2026-03-22 CSVシミュレーションに基づき引き上げ）
 
-閾値を0.40に設定することで、低品質なシグナル（LondonセッションのBOS単独等）を除外できる。
+閾値シミュレーション結果:
+- 閾値0.40: 1日9.49件 PF=1.00（トントン・スプレッド込みで実質赤字）
+- 閾値0.50: 1日6.24件 PF=1.17（目標5件/日クリア・黒字）
+
+PF改善を優先し0.50に引き上げ。典型的なapproveパターン:
 
 ```
-bos単独(+0.30) + tokyo(+0.10)        = 0.40 → approve ✅（意図的にギリギリ通過）
-bos単独(+0.30) + ny(+0.05) + adx(+0.10) = 0.45 → approve ✅
-bos単独(+0.30) + london(-0.15)       = 0.15 → reject ❌（低品質セッションを除外）
-fvg+zone(+0.30) + bos(+0.30)         = 0.60 → approve ✅（複合シグナルは通過）
-zone単独(-0.20) + bos(+0.30)         = 0.10 → reject ❌（zone単独ペナルティが効く）
+bos単独(+0.30) + tokyo(+0.10) + h1_aligned(+0.10) = 0.50 → approve ✅（ギリギリ）
+bos単独(+0.30) + tokyo(+0.10) + adx(+0.10)        = 0.50 → approve ✅
+bos単独(+0.30) + london(-0.15)                    = 0.15 → reject ❌（意図的に除外）
+fvg+zone(+0.30) + bos(+0.30)                      = 0.60 → approve ✅（複合シグナル）
+bos+sweep(+0.50)                                  = 0.50 → approve ✅
 ```
 
 ---
@@ -458,6 +462,11 @@ py python/csv_analyzer.py data/export.csv
 - H1方向一致/不一致の比較
 - スコア閾値シミュレーション（件数/日 × PF のトレードオフ）
 - 日別エントリー数分布
+- 月別成績（月次損益・勝率・PF）※スコア閾値フィルター適用
+- 連勝・連敗分析（最大連勝・連敗・連敗分布）※スコア閾値フィルター適用
+- ドローダウン分析（最大DD・リカバリーファクター）※スコア閾値フィルター適用
+- 平均保有時間（バー数・時間換算・勝ち負け別）※スコア閾値フィルター適用
+- 方向別成績（Buy/Sell別の勝率・PF・損益）※スコア閾値フィルター適用
 
 ### 分析実績（2025-12-07〜2026-03-20、59日間）
 
@@ -487,6 +496,35 @@ py python/csv_analyzer.py data/export.csv
 | london_ny | 0.89 | +0.10 | **-0.10** | 実績不振→逆転 |
 | london | 0.83 | +0.05 | **-0.15** | 実績最悪→逆転 |
 
+### 分析実績（閾値0.50適用後・2026-03-22更新）
+
+| 指標 | 値 |
+|---|---|
+| 分析期間 | 2025-12-07〜2026-03-20（約3.5ヶ月・20,043バー） |
+| 総エントリー（閾値0.50） | 630件 / 6.4件/日 |
+| 勝率 | 44.1% |
+| PF | 1.17 |
+| 期待値 | +0.26R/トレード |
+| 最終損益 | +161.6R（3.5ヶ月） |
+| 最大ドローダウン | -201.0R |
+| リカバリーファクター | 0.80 |
+| 平均保有時間 | 約2.3時間（27.3バー） |
+| 方向均一性 | BUY PF=1.17 / SELL PF=1.17 |
+
+**月別成績:**
+
+| 月 | 件数 | 勝率 | 月次損益 |
+|---|---|---|---|
+| 2025-12 | 80件 | 32.5% | -41.8R |
+| 2026-01 | 305件 | 45.3% | +101.1R |
+| 2026-02 | 86件 | 54.7% | +82.7R |
+| 2026-03 | 159件 | 42.1% | +19.6R |
+
+> ⚠️ **注意事項:**
+> - バックテスト結果はサンプル数が統計的に不十分（最低200件以上必要）
+> - 最大連敗48回・最大DD -201.0R への資金管理設計が必要
+> - リアル運用時は `risk_percent` を0.10〜0.20%程度に下げること推奨
+
 ---
 
 ## 11. 開発ロードマップ
@@ -494,9 +532,9 @@ py python/csv_analyzer.py data/export.csv
 | フェーズ | 内容 | 状態 |
 |---|---|---|
 | Phase 0-1 | `csv_exporter.pine` 作成（全バーCSV出力用インジ） | ✅ 完了 |
-| Phase 0-2 | `csv_analyzer.py` 作成・59日分データ分析実行 | ✅ 完了 |
+| Phase 0-2 | `csv_analyzer.py` 作成・分析実行・詳細レポート追加（月別・DD・連敗・保有時間・方向別） | ✅ 完了 |
 | Phase 1-1 | BOS/OBバグ修正（CHoCHリセット前にBOS評価する処理順序修正） | ✅ 完了 |
-| Phase 2   | スコアリング全面再設計（CSVデータ根拠）・閾値0.40に変更 | ✅ 完了 |
+| Phase 2   | スコアリング全面再設計（CSVデータ根拠）・閾値0.50に変更 | ✅ 完了 |
 | Phase 1-2 | ニュースフィルター動的実装（経済指標カレンダーAPI連携） | 🔲 未着手 |
 | Phase 1-3 | FVG/Zone再使用制御＋重複エントリーブロック実装 | 🔲 未着手 |
 | Phase 3   | BREAKOUTエグジット再設計（TP縮小＋BE追加） | 🔲 未着手 |
@@ -517,6 +555,7 @@ py python/csv_analyzer.py data/export.csv
 | 🟡 中 | `news_nearby` 動的実装なし | NFP/FOCMの固定ブラックアウトのみ。他の重要経済指標・BOJ・ECBは非対応 |
 | 🟡 中 | `rsi_divergence` 未実装 | Pine Scriptで常にfalse固定。スコアテーブルに0.00で登録済みだが機能していない |
 | 🟡 中 | BREAKOUTのTP×6.0 | 5M足では非現実的に長いTP設定。Phase 3で縮小＋BE追加を予定 |
+| 🟡 中 | meta_optimizer TUNABLE_PARAMS未完全対応 | fvg_only_penalty・zone_only_penaltyが最適化対象外の可能性。approve_threshold上限は0.55に更新済み |
 | 🟢 低 | 5M足FVG/Zoneのノイズ問題 | 5M足は細かすぎてノイズが多い。15M足への変更を検討中だが後方互換性の問題がある |
 | 🟢 低 | タスクスケジューラ自動起動 | VPS再起動後の自動起動。`start_trading.bat` は作成済みだが登録確認が必要 |
 
@@ -610,7 +649,7 @@ py -m pytest tests/ -v
 | `test_meta_optimizer.py` | 複数件 | メタ最適化 |
 | `test_news_filter.py` | 複数件 | ニュースフィルター・ブラックアウト判定 |
 
-**現在の状態:** `test_scoring_engine.py` 全29件 PASSED（2026-03-21確認済み）
+**現在の状態:** `test_scoring_engine.py` 全29件 PASSED（2026-03-22確認済み）
 
 ---
 
@@ -618,6 +657,7 @@ py -m pytest tests/ -v
 
 | バージョン | 日付 | 主な変更点 |
 |---|---|---|
+| **v4.4** | 2026-03-22 | CSVデータ分析基盤構築（csv_exporter.pine・csv_analyzer.py）・BOS/OBバグ修正（処理順序変更）・スコアリング全面再設計（セッション逆転修正・fvg_only_penalty追加・zone_only_penalty追加・bos_and_sweep追加）・approve_threshold 0.15→0.50・demo_mode実装・csv_analyzer詳細レポート追加（月別・DD・連敗・保有時間・方向別） |
 | **v4.3** | 2026-03 | BOS/OBバグ修正（CHoCHリセット前にBOS評価）・BREAKOUTdirectionバグ修正（bo_direction_locked導入）・scoring_history全件記録・BOJ固定ブラックアウト削除・FOMC時間修正（21-24→18-20）・損失アラート通知削除 |
 | **v4.2** | 2026-02 | REVERSAL廃止（Gate2でreject）・Pine Script発火条件OR化・approve閾値0.15に引き下げ・描画統合（FVG/Zone/OB/BOS/CHoCHラベル）・シンボル変換（XAUUSD→GOLD#）・JPY口座USD換算バグ修正 |
 | **v4.1** | 2026-01 | should_alert条件をレジーム+direction確定のみに緩和（Gate3重複解消）・Discord通知実装（7イベント）・Windows VPS（ABLENET）移行完了 |
@@ -638,7 +678,7 @@ Pine Script（5M足）が生成したアラートJSONをWindows VPS上のFlask W
 承認されたシグナルを同一マシン上のMT5に発注する。
 
 ```
-TradingView (Pine Script 5M / v4.3)
+TradingView (Pine Script 5M / v4.4)
         │  Webhook (HTTP port 80)
         ▼
 Windows VPS / ABLENET (150.66.32.144)
