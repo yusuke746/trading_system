@@ -13,9 +13,17 @@ import sys
 import os
 import argparse
 from datetime import datetime
+from unittest.mock import patch
 
 import pandas as pd
 import numpy as np
+
+# scoring_engine はプロジェクトルートにあるため追加
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from scoring_engine import calculate_score
 
 # ─── 定数 ──────────────────────────────────────────────────────────────────────
 SL_ATR_MULT = 2.7
@@ -178,51 +186,37 @@ def simulate_trades(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ─── 簡易スコア計算 ────────────────────────────────────────────────────────────
-def calc_score(row: pd.Series) -> float:
-    score = 0.0
-    choch     = int(row["choch"])
-    fvg       = int(row["fvg"])
-    zone      = int(row["zone"])
-    bos       = int(row["bos"])
-    ob        = int(row["ob"])
-    session   = int(row["session"])
-    atr_ratio = float(row["atr_ratio"])
-    h1_dir    = int(row["h1_direction"])
-    direction = int(row["direction"])
+# ─── CSVの1行をscoring_engineのalert形式に変換 ──────────────────────────────
+def csv_row_to_alert(row: dict) -> dict:
+    """CSVの1行をscoring_engine.calculate_score()が受け取れる
+    alert dict形式に変換する"""
 
-    if choch == 1:
-        score += 0.20
-    if fvg == 1:
-        score += 0.10
-    if zone == 1:
-        score += 0.10
-    if fvg == 1 and zone == 1:
-        score += 0.15
-    if bos == 1:
-        score += 0.20
-    if ob == 1:
-        score += 0.20
-    if ob == 1 and fvg == 1:
-        score += 0.10
+    # regime デコード: 1=TREND, 2=BREAKOUT, 3=RANGE, 4=REVERSAL
+    regime_map = {'1': 'TREND', '2': 'BREAKOUT', '3': 'RANGE', '4': 'REVERSAL'}
+    # direction デコード: 1=buy, -1=sell, 0=none
+    dir_map = {'1': 'buy', '-1': 'sell', '0': 'none'}
+    # session デコード: 5=london_ny, 4=london, 3=ny, 2=tokyo, 1=off
+    sess_map = {'5': 'london_ny', '4': 'london', '3': 'ny', '2': 'tokyo', '1': 'off'}
+    # h1_direction デコード: 1=bull, -1=bear
+    h1_map = {'1': 'bull', '-1': 'bear', '0': 'none'}
 
-    # h1方向一致判定
-    if (h1_dir == 1 and direction == 1) or (h1_dir == -1 and direction == -1):
-        score += 0.10
-
-    if session == 5:
-        score += 0.10
-    elif session == 4:
-        score += 0.05
-    elif session == 2:
-        score -= 0.10
-    elif session == 1:
-        score -= 0.20
-
-    if atr_ratio > 1.5:
-        score -= 0.05
-
-    return round(score, 4)
+    return {
+        'regime':          regime_map.get(str(row.get('regime', '3')), 'RANGE'),
+        'direction':       dir_map.get(str(row.get('direction', '0')), 'none'),
+        'h1_direction':    h1_map.get(str(row.get('h1_direction', '0')), 'none'),
+        'h1_adx':          float(row.get('h1_adx', 0)),
+        'm15_adx':         float(row.get('m15_adx', 0)),
+        'atr_ratio':       float(row.get('atr_ratio', 1.0)),
+        'choch_confirmed': str(row.get('choch', '0')) == '1',
+        'fvg_aligned':     str(row.get('fvg', '0')) == '1',
+        'zone_aligned':    str(row.get('zone', '0')) == '1',
+        'bos_confirmed':   str(row.get('bos', '0')) == '1',
+        'ob_aligned':      str(row.get('ob', '0')) == '1',
+        'sweep_detected':  str(row.get('sweep', '0')) == '1',
+        'session':         sess_map.get(str(row.get('session', '1')), 'off'),
+        'news_nearby':     False,
+        'rsi_divergence':  False,
+    }
 
 
 # ─── 集計ヘルパー ──────────────────────────────────────────────────────────────
@@ -350,8 +344,20 @@ def report(df: pd.DataFrame) -> None:
     # ── スコア閾値シミュレーション ──
     print_section("スコア閾値シミュレーション")
 
-    entries["score"] = entries.apply(calc_score, axis=1)
-    entries_resolved["score"] = entries["score"]
+    # scoring_engine.calculate_score() を使ってスコアと判定を算出
+    scores = []
+    decisions = []
+    for _, row in entries.iterrows():
+        alert = csv_row_to_alert(row)
+        with patch('news_filter.is_news_blackout', return_value=False):
+            result = calculate_score(alert)
+        scores.append(result['score'])
+        decisions.append(result['decision'])
+
+    entries['score']    = scores
+    entries['decision'] = decisions
+    entries_resolved['score']    = entries.loc[entries_resolved.index, 'score']
+    entries_resolved['decision'] = entries.loc[entries_resolved.index, 'decision']
 
     # CSVの総日数
     date_min = entries["time"].dt.date.min()
@@ -361,7 +367,10 @@ def report(df: pd.DataFrame) -> None:
     print(f"{'閾値':>6} | {'通過件数':>8} | {'1日平均':>8} | {'勝率':>8} | {'PF':>6} | {'期待値':>6}")
     print("-" * 70)
     for thresh in SCORE_THRESHOLDS:
-        filtered = entries_resolved[entries_resolved["score"] >= thresh]
+        filtered = entries_resolved[
+            (entries_resolved["score"] >= thresh) &
+            (entries_resolved["decision"] != "reject")
+        ]
         t = len(filtered)
         if t == 0:
             print(f"{thresh:>6.2f} | {0:>8} | {'0.00':>8} | {'N/A':>8} | {'N/A':>6} | {'N/A':>6}")
@@ -404,7 +413,13 @@ def save_result_csv(df: pd.DataFrame) -> None:
     out_path = f"data/analysis_result_{ts}.csv"
 
     entries = df[(df["alert_fired"] == 1) & (df["direction"] != 0)].copy()
-    entries["score"] = entries.apply(calc_score, axis=1)
+    scores = []
+    for _, row in entries.iterrows():
+        alert = csv_row_to_alert(row)
+        with patch('news_filter.is_news_blackout', return_value=False):
+            result = calculate_score(alert)
+        scores.append(result['score'])
+    entries["score"] = scores
 
     out_cols = [
         "time", "open", "high", "low", "close",
