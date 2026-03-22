@@ -41,7 +41,7 @@ TUNABLE_PARAMS = {
     "h1_direction_aligned":   (0.05, 0.20),   # 現在値 0.10
     "session_london_ny":      (0.05, 0.20),   # 現在値 0.10
     # ── 判定閾値（別ガードで ±0.03 制限あり）──────────────────
-    "approve_threshold":      (0.15, 0.40),   # 現在値 0.25（旧 0.35〜0.60 から変更）
+    "approve_threshold":      (0.15, 0.55),   # 現在値 0.50（旧 0.40, 2026-03-22）
     "wait_threshold":         (0.00, 0.15),   # 現在値 0.00
 }
 THRESHOLD_PARAMS = {"approve_threshold", "wait_threshold"}

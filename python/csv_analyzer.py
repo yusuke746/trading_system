@@ -277,7 +277,8 @@ def report(df: pd.DataFrame) -> None:
     print(f"{'regime':<20} | {'件数':>4} | {'勝率':>8} | {'PF':>6} | {'期待値':>6}")
     print("-" * 65)
     for code, name in sorted(REGIME_MAP.items()):
-        sub = resolved[entries["regime"] == code]
+        mask = (entries["regime"] == code).reindex(resolved.index, fill_value=False)
+        sub = resolved[mask]
         if len(sub) == 0:
             continue
         w = (sub["outcome"] == "win").sum()
@@ -290,7 +291,8 @@ def report(df: pd.DataFrame) -> None:
     print(f"{'session':<20} | {'件数':>4} | {'勝率':>8} | {'PF':>6} | {'期待値':>6}")
     print("-" * 65)
     for code, name in sorted(SESSION_MAP.items(), reverse=True):
-        sub = resolved[entries["session"] == code]
+        mask = (entries["session"] == code).reindex(resolved.index, fill_value=False)
+        sub = resolved[mask]
         if len(sub) == 0:
             continue
         w = (sub["outcome"] == "win").sum()
