@@ -125,7 +125,8 @@ def simulate_trades(df: pd.DataFrame) -> pd.DataFrame:
     alert_fired=1 かつ direction != 0 の行をエントリーとしてシミュレートする。
     結果列 'outcome' を追加: 'win' / 'loss' / 'timeout'
     """
-    outcomes = [""] * len(df)
+    outcomes  = [""] * len(df)
+    exit_bars = [0] * len(df)
 
     # エントリー対象行のインデックスを取得
     entry_mask = (df["alert_fired"] == 1) & (df["direction"] != 0)
@@ -171,9 +172,11 @@ def simulate_trades(df: pd.DataFrame) -> pd.DataFrame:
 
             if hit_sl:
                 result = "loss"
+                exit_bars[idx] = j - idx
                 break
             if hit_tp:
                 result = "win"
+                exit_bars[idx] = j - idx
                 break
 
         outcomes[idx] = result
@@ -182,7 +185,8 @@ def simulate_trades(df: pd.DataFrame) -> pd.DataFrame:
         print()  # 改行
 
     df = df.copy()
-    df["outcome"] = outcomes
+    df["outcome"]  = outcomes
+    df["exit_bar"] = exit_bars
     return df
 
 
@@ -404,6 +408,115 @@ def report(df: pd.DataFrame) -> None:
         n = ((daily_counts >= lo) & (daily_counts <= hi)).sum()
         if n > 0:
             print(f"  {label}: {n}日")
+
+    # ── 月別成績 ──
+    print_section("月別成績")
+    entries_resolved["month"] = entries_resolved["time"].dt.to_period("M").astype(str)
+    monthly = entries_resolved.groupby("month")
+    print(f"{'月':>10} | {'件数':>4} | {'勝ち':>4} | {'負け':>4} | {'勝率':>7} | {'PF':>6} | {'月次損益':>10}")
+    print("-" * 60)
+    for month, grp in monthly:
+        w = (grp["outcome"] == "win").sum()
+        l = (grp["outcome"] == "loss").sum()
+        t = len(grp)
+        pnl_r = w * TP_ATR_MULT - l * SL_ATR_MULT
+        pnl_str = f"{pnl_r:+.1f}R"
+        print(f"{month:>10} | {t:>4} | {w:>4} | {l:>4} | "
+              f"{win_rate(w,t):>7} | {safe_pf(w,l):>6} | {pnl_str:>10}")
+
+    # ── 連勝・連敗分析 ──
+    print_section("連勝・連敗分析")
+    outcomes_seq = entries_resolved["outcome"].tolist()
+    max_win_streak = max_loss_streak = 0
+    cur_streak = 1
+    for i in range(1, len(outcomes_seq)):
+        if outcomes_seq[i] == outcomes_seq[i-1]:
+            cur_streak += 1
+        else:
+            cur_streak = 1
+        if outcomes_seq[i] == "win":
+            max_win_streak = max(max_win_streak, cur_streak)
+        elif outcomes_seq[i] == "loss":
+            max_loss_streak = max(max_loss_streak, cur_streak)
+    if outcomes_seq:
+        if outcomes_seq[0] == "win":
+            max_win_streak = max(max_win_streak, 1)
+        else:
+            max_loss_streak = max(max_loss_streak, 1)
+    print(f"  最大連勝: {max_win_streak} 連勝")
+    print(f"  最大連敗: {max_loss_streak} 連敗")
+    # 連敗ごとの頻度
+    loss_streaks = []
+    cur = 0
+    for o in outcomes_seq:
+        if o == "loss":
+            cur += 1
+        else:
+            if cur > 0:
+                loss_streaks.append(cur)
+            cur = 0
+    if cur > 0:
+        loss_streaks.append(cur)
+    from collections import Counter
+    streak_counts = Counter(loss_streaks)
+    print(f"\n  連敗分布:")
+    for k in sorted(streak_counts.keys()):
+        print(f"    {k}連敗: {streak_counts[k]}回")
+
+    # ── ドローダウン分析 ──
+    print_section("ドローダウン分析（R単位）")
+    equity_curve = []
+    equity = 0.0
+    for o in outcomes_seq:
+        if o == "win":
+            equity += TP_ATR_MULT
+        elif o == "loss":
+            equity -= SL_ATR_MULT
+        equity_curve.append(equity)
+    peak = 0.0
+    max_dd = 0.0
+    max_dd_start = 0
+    max_dd_end = 0
+    for i, e in enumerate(equity_curve):
+        if e > peak:
+            peak = e
+            dd_start = i
+        dd = peak - e
+        if dd > max_dd:
+            max_dd = dd
+            max_dd_end = i
+    print(f"  最終損益:         {equity:+.1f}R")
+    print(f"  最大ドローダウン: -{max_dd:.1f}R")
+    if max_dd > 0:
+        print(f"  リカバリーファクター: {equity/max_dd:.2f}")
+    else:
+        print(f"  リカバリーファクター: ∞")
+
+    # ── 平均保有時間 ──
+    print_section("平均保有時間")
+    if "exit_bar" in entries_resolved.columns:
+        resolved_with_exit = entries_resolved[entries_resolved["exit_bar"] > 0]
+        avg_bars = resolved_with_exit["exit_bar"].mean()
+        med_bars = resolved_with_exit["exit_bar"].median()
+        print(f"  平均保有バー数: {avg_bars:.1f}本 = 約{avg_bars*5/60:.1f}時間")
+        print(f"  中央値:         {med_bars:.0f}本 = 約{med_bars*5/60:.1f}時間")
+        win_bars  = resolved_with_exit[resolved_with_exit["outcome"]=="win"]["exit_bar"].mean()
+        loss_bars = resolved_with_exit[resolved_with_exit["outcome"]=="loss"]["exit_bar"].mean()
+        print(f"  勝ちトレード平均: {win_bars:.1f}本 = 約{win_bars*5/60:.1f}時間")
+        print(f"  負けトレード平均: {loss_bars:.1f}本 = 約{loss_bars*5/60:.1f}時間")
+
+    # ── 方向別成績 ──
+    print_section("方向別成績（Buy / Sell）")
+    for dir_val, dir_name in [(1, "BUY"), (-1, "SELL")]:
+        sub = entries_resolved[entries_resolved["direction"] == dir_val]
+        if len(sub) == 0:
+            continue
+        w = (sub["outcome"] == "win").sum()
+        l = (sub["outcome"] == "loss").sum()
+        t = len(sub)
+        pnl = w * TP_ATR_MULT - l * SL_ATR_MULT
+        print(f"  {dir_name}: {t}件  勝率={win_rate(w,t)}  PF={safe_pf(w,l)}"
+              f"  損益={pnl:+.1f}R")
 
 
 # ─── CSV出力 ───────────────────────────────────────────────────────────────────
