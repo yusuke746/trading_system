@@ -409,10 +409,25 @@ def report(df: pd.DataFrame) -> None:
         if n > 0:
             print(f"  {label}: {n}日")
 
+    # ── 詳細レポート用フィルタリング（スコア閾値） ──
+    DETAIL_THRESHOLD = 0.50
+    entries_detail = entries_resolved[
+        entries_resolved["score"] >= DETAIL_THRESHOLD
+    ].copy()
+    total_detail_days = max(
+        (entries_detail["time"].dt.date.max() -
+         entries_detail["time"].dt.date.min()).days, 1
+    )
+    print(f"\n{'='*60}")
+    print(f"  詳細分析（スコア閾値 {DETAIL_THRESHOLD} 以上）")
+    print(f"  対象: {len(entries_detail)}件 / "
+          f"{len(entries_detail)/total_detail_days:.1f}件/日")
+    print(f"{'='*60}")
+
     # ── 月別成績 ──
     print_section("月別成績")
-    entries_resolved["month"] = entries_resolved["time"].dt.to_period("M").astype(str)
-    monthly = entries_resolved.groupby("month")
+    entries_detail["month"] = entries_detail["time"].dt.to_period("M").astype(str)
+    monthly = entries_detail.groupby("month")
     print(f"{'月':>10} | {'件数':>4} | {'勝ち':>4} | {'負け':>4} | {'勝率':>7} | {'PF':>6} | {'月次損益':>10}")
     print("-" * 60)
     for month, grp in monthly:
@@ -426,7 +441,7 @@ def report(df: pd.DataFrame) -> None:
 
     # ── 連勝・連敗分析 ──
     print_section("連勝・連敗分析")
-    outcomes_seq = entries_resolved["outcome"].tolist()
+    outcomes_seq = entries_detail["outcome"].tolist()
     max_win_streak = max_loss_streak = 0
     cur_streak = 1
     for i in range(1, len(outcomes_seq)):
@@ -494,8 +509,8 @@ def report(df: pd.DataFrame) -> None:
 
     # ── 平均保有時間 ──
     print_section("平均保有時間")
-    if "exit_bar" in entries_resolved.columns:
-        resolved_with_exit = entries_resolved[entries_resolved["exit_bar"] > 0]
+    if "exit_bar" in entries_detail.columns:
+        resolved_with_exit = entries_detail[entries_detail["exit_bar"] > 0]
         avg_bars = resolved_with_exit["exit_bar"].mean()
         med_bars = resolved_with_exit["exit_bar"].median()
         print(f"  平均保有バー数: {avg_bars:.1f}本 = 約{avg_bars*5/60:.1f}時間")
@@ -508,7 +523,7 @@ def report(df: pd.DataFrame) -> None:
     # ── 方向別成績 ──
     print_section("方向別成績（Buy / Sell）")
     for dir_val, dir_name in [(1, "BUY"), (-1, "SELL")]:
-        sub = entries_resolved[entries_resolved["direction"] == dir_val]
+        sub = entries_detail[entries_detail["direction"] == dir_val]
         if len(sub) == 0:
             continue
         w = (sub["outcome"] == "win").sum()
