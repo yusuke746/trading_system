@@ -143,6 +143,18 @@ class PositionManager:
         # MT5にポジションが存在するか確認
         mt5_pos = mt5.positions_get(ticket=pos.ticket)
         if not mt5_pos:
+            # エントリー直後はMT5が一時的に空を返すことがある
+            elapsed = (datetime.now(timezone.utc) - pos.entered_at).total_seconds()
+            if elapsed < 30:
+                logger.info(
+                    "ポジション未確認（エントリー直後 %.0f秒）: ticket=%d スキップ",
+                    elapsed, pos.ticket,
+                )
+                return "ok"
+            # 30秒以上経過: 1秒待って再確認
+            time.sleep(1.0)
+            mt5_pos = mt5.positions_get(ticket=pos.ticket)
+        if not mt5_pos:
             # 決済済み → Discord通知してから呼び出し元(_tick)が削除
             try:
                 if pos.direction == "buy":
