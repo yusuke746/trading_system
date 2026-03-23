@@ -35,17 +35,19 @@ def _utc_now() -> datetime:
 
 def is_weekend(symbol: str = "XAUUSD") -> bool:
     """
-    土曜全日・日曜全日・月曜00:00〜01:00（UTC基準）は取引停止とみなす。
-    XMのGOLD週末クローズはFRI 23:59・月曜の再開は MON 01:00 UTC付近。
+    週末クローズ判定（UTC基準）。
+    GOLD#(XAUUSD)の取引時間:
+      - 週末クローズ: 金曜 22:00 UTC
+      - 週明け開場:   日曜 22:00 UTC（= 月曜 00:00 JST）
     """
     now = _utc_now()
     wd  = now.weekday()   # Mon=0 … Sun=6
 
-    if wd == 5:   # Saturday
+    if wd == 5:                     # Saturday — all day closed
         return True
-    if wd == 6:   # Sunday
-        return True
-    if wd == 0 and now.hour < 1:   # Monday 00:00〜00:59 UTC
+    if wd == 6:                     # Sunday — closed until 22:00 UTC
+        return now.hour < 22
+    if wd == 4 and now.hour >= 22:  # Friday 22:00+ — closed
         return True
     return False
 
