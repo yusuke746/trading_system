@@ -7,7 +7,7 @@ mt5.symbol_info()のtrade_modeで最終判断する。
 """
 
 import logging
-from datetime import datetime, timezone, time, timedelta
+from datetime import datetime, timezone, time
 
 try:
     import MetaTrader5 as mt5
@@ -22,11 +22,8 @@ from config import SYSTEM_CONFIG
 
 logger = logging.getLogger(__name__)
 
-DAILY_BREAK_START_H = SYSTEM_CONFIG["daily_break_start_h"]   # 23
-DAILY_BREAK_START_M = SYSTEM_CONFIG["daily_break_start_m"]   # 45
-DAILY_BREAK_END_H   = SYSTEM_CONFIG["daily_break_end_h"]     # 1
-LIMIT_CANCEL_H      = SYSTEM_CONFIG["limit_cancel_start_h"]  # 23
-LIMIT_CANCEL_M      = SYSTEM_CONFIG["limit_cancel_start_m"]  # 30
+LIMIT_CANCEL_H = SYSTEM_CONFIG["limit_cancel_start_h"]  # 23
+LIMIT_CANCEL_M = SYSTEM_CONFIG["limit_cancel_start_m"]  # 30
 
 
 def _utc_now() -> datetime:
@@ -52,18 +49,6 @@ def is_weekend(symbol: str = "XAUUSD") -> bool:
     return False
 
 
-def is_daily_break() -> bool:
-    """毎日 23:45〜01:00 UTC はデイリーブレイク"""
-    now = _utc_now()
-    t   = now.time()
-    # 23:45 〜 24:00
-    if t >= time(DAILY_BREAK_START_H, DAILY_BREAK_START_M):
-        return True
-    # 00:00 〜 01:00
-    if t < time(DAILY_BREAK_END_H, 0):
-        return True
-    return False
-
 
 def is_limit_cancel_zone() -> bool:
     """23:30 UTC 以降、未約定指値の自動キャンセル警戒ゾーン"""
@@ -80,7 +65,7 @@ def get_current_session() -> dict:
         London        07:00 〜 12:00   ボラ上昇・トレンド発生多
         London_NY     12:00 〜 16:00   最高ボラ・GOLDの主戦場
         NY            16:00 〜 21:00   ボラ中・NY引けに向け縮小
-        Off_hours     21:00 〜 00:00   ボラ低下・デイリーブレイク接近
+        Off_hours     21:00 〜 00:00   ボラ低下・クローズ接近
 
     Returns:
         {
@@ -105,7 +90,7 @@ def get_current_session() -> dict:
                 "description": "NY時間（ボラ中・引けに向け縮小）"}
     # 21:00〜24:00
     return {"session": "Off_hours",     "volatility": "low",
-            "description": "クローズ接近（低ボラ・デイリーブレイク前）"}
+            "description": "オフアワー（低ボラ・クローズ接近）"}
 
 
 def is_market_open(symbol: str = "XAUUSD") -> dict:
@@ -129,13 +114,11 @@ def is_market_open(symbol: str = "XAUUSD") -> dict:
 
 def full_market_check(symbol: str = "XAUUSD") -> dict:
     """
-    週末・デイリーブレイク・MT5 trade_mode を一括チェック。
+    週末・MT5 trade_mode を一括チェック。
     Returns: {"ok": bool, "reason": str}
     """
     if is_weekend(symbol):
         return {"ok": False, "reason": "週末クローズ"}
-    if is_daily_break():
-        return {"ok": False, "reason": "デイリーブレイク（23:45〜01:00 UTC）"}
     m = is_market_open(symbol)
     if not m["open"]:
         return {"ok": False, "reason": m["reason"]}
