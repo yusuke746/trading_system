@@ -35,7 +35,7 @@ _BASE_TP_MULT = SYSTEM_CONFIG["atr_tp_multiplier"]   # 3.0
 SL_MULT_MIN = 1.5
 SL_MULT_MAX = 3.5
 TP_MULT_MIN = 2.0
-TP_MULT_MAX = 5.0
+TP_MULT_MAX = 3.5
 
 # ── キャッシュ設定 ────────────────────────────────────────
 _CACHE_TTL_SEC = 300   # 5分

@@ -207,28 +207,34 @@ def build_order_params(trigger: dict, ai_result: dict,
     dyn_sl_mult = live_params.get("atr_sl_multiplier", ATR_SL_MULT)
     dyn_tp_mult = live_params.get("atr_tp_multiplier", ATR_TP_MULT)
 
-    # セッション別 SL/TP 補正
+    # セッション補正: ベース値にのみ適用し、param_optimizerの増分は加算
+    # デルタ = param_optimizerがベース値から調整した絶対量
+    sl_delta = dyn_sl_mult - ATR_SL_MULT
+    tp_delta = dyn_tp_mult - ATR_TP_MULT
+
     session_info = get_current_session()
     session_name = session_info.get("session", "London")
-    sess_adj     = SESSION_SLTP_ADJUST.get(session_name, {"sl_mult": 1.0, "tp_mult": 1.0})
-    dyn_sl_mult  = round(dyn_sl_mult * sess_adj["sl_mult"], 4)
-    dyn_tp_mult  = round(dyn_tp_mult * sess_adj["tp_mult"], 4)
+    sess_adj     = SESSION_SLTP_ADJUST.get(
+        session_name, {"sl_mult": 1.0, "tp_mult": 1.0})
+
+    # ベース値にセッション補正を適用し、増分を加算（重複乗算を防ぐ）
+    dyn_sl_mult = round(ATR_SL_MULT * sess_adj["sl_mult"] + sl_delta, 4)
+    dyn_tp_mult = round(ATR_TP_MULT * sess_adj["tp_mult"] + tp_delta, 4)
     logger.info(
-        "📅 セッション補正: session=%s sl_mult=%.2f tp_mult=%.2f",
-        session_name, dyn_sl_mult, dyn_tp_mult,
+        "📅 セッション補正(デルタ方式): session=%s "
+        "sl_mult=%.2f(delta=%.2f) tp_mult=%.2f(delta=%.2f)",
+        session_name, dyn_sl_mult, sl_delta, dyn_tp_mult, tp_delta,
     )
 
-    # SL用ATR: atr5（atr_override）があればそれを使う、なければ15M ATR
+    # SL/TP 両方に同一のATRを使用（時間軸の不整合を解消）
+    # atr5があればatr5を優先、なければ15M ATRにフォールバック
     if atr_override is not None and atr_override > 0:
         sl_atr = atr_override
-        logger.info("📐 SL用ATR override 使用: atr5=%.3f", sl_atr)
+        logger.info("📐 ATR（SL/TP共通）: atr5=%.3f", sl_atr)
     else:
         sl_atr = _get_atr15m(symbol)
 
-    # TP用ATR: 常に15M ATR（利幅は15Mの値動き幅を基準にする）
-    tp_atr = _get_atr15m(symbol)
-    if tp_atr is None or tp_atr <= 0:
-        tp_atr = sl_atr
+    tp_atr = sl_atr  # SLと同一ATRを使用
 
     # ATRボラティリティフィルター（sl_atr に対して適用）
     atr_max = SYSTEM_CONFIG.get("atr_volatility_max", 30.0)
