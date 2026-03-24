@@ -157,6 +157,7 @@ class PositionManager:
         if not mt5_pos:
             # 決済済み → Discord通知してから呼び出し元(_tick)が削除
             try:
+                # GOLD: price_diff(USD) × lots × 100 → USD建て（通貨換算不要）
                 if pos.direction == "buy":
                     pnl_est = (current_price - pos.entry_price) * pos.lot_size * 100
                 else:
@@ -263,7 +264,8 @@ class PositionManager:
         }
         result = mt5.order_send(req)
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            # 符号付きPnL: buy → 価格上昇が利益, sell → 価格下落が利益
+            # GOLD の損益計算: 1lot × 1ドル動き = $100
+            # price_diff(USD) × lots × 100 → すでにUSD建てなので通貨換算不要
             if pos.direction == "buy":
                 pnl      = (current_price - pos.entry_price) * close_vol * 100
                 pnl_pips = (current_price - pos.entry_price) / 0.1
