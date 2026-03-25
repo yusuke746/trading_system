@@ -101,7 +101,9 @@ def _check_gates(alert: dict) -> list[str]:
     sweep     = bool(alert.get("sweep_detected", False))
 
     # 共通ゲート ①: h1_adx >= 25
-    if h1_adx < 25:
+    # BREAKOUTレジームは免除（ブレイク直後はADXが遅行するため）
+    # 代替フィルター: 15M足のATR急拡大+直前ADX低下でレジーム判定済み
+    if h1_adx < 25 and regime != "BREAKOUT":
         reasons.append(f"Gate1: h1_adx={h1_adx:.1f} < 25")
 
     # 共通ゲート ②: RANGE / REVERSAL は即 reject
