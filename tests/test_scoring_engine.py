@@ -542,6 +542,42 @@ class TestDirectionNoneRejected(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────
+# Gate1 BREAKOUT免除テスト
+# ──────────────────────────────────────────────────────────
+
+class TestGate1BreakoutExemption(unittest.TestCase):
+
+    def test_trend_h1_adx_low_rejected(self):
+        """regime=TREND, h1_adx=20 → Gate1でreject（変更なし）"""
+        alert = _make_alert(regime="TREND", h1_adx=20.0)
+        result = calculate_score(alert)
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(any("Gate1" in r for r in result["reject_reasons"]))
+
+    def test_breakout_h1_adx_low_skips_gate1(self):
+        """regime=BREAKOUT, h1_adx=20 → Gate1をスキップ（新動作）"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            h1_adx=20.0,
+            fvg_aligned=True,
+            zone_aligned=True,
+        )
+        result = calculate_score(alert)
+        self.assertFalse(any("Gate1" in r for r in result["reject_reasons"]))
+
+    def test_breakout_h1_adx_high_passes(self):
+        """regime=BREAKOUT, h1_adx=30 → 通過（変更なし）"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            h1_adx=30.0,
+            fvg_aligned=True,
+            zone_aligned=True,
+        )
+        result = calculate_score(alert)
+        self.assertFalse(any("Gate1" in r for r in result["reject_reasons"]))
+
+
+# ──────────────────────────────────────────────────────────
 # エントリーポイント
 # ──────────────────────────────────────────────────────────
 
