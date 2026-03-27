@@ -118,15 +118,12 @@ bo_box_width     = bo_box_high - bo_box_low
 bo_box_atr_ratio = atr5 > 0 ? bo_box_width / atr5 : 999.0
 bo_adx_avg       = ta.sma(m15_adx, bo_lookback_bars)
 
-stage1_range = bo_box_atr_ratio < bo_box_atr_max and
-               bo_adx_avg < bo_adx_avg_max
+stage1_range = bo_box_atr_ratio < bo_box_atr_max and bo_adx_avg < bo_adx_avg_max
 
 // ── BREAKOUT Stage2: ブレイク認定 ──
 // 終値が過去N本のボックス上限/下限をATRのZ倍超えている
-bo_break_up   = close > bo_box_high and
-                (close - bo_box_high) / atr5 > bo_break_atr_min
-bo_break_down = close < bo_box_low  and
-                (bo_box_low - close) / atr5 > bo_break_atr_min
+bo_break_up   = close > bo_box_high and (close - bo_box_high) / atr5 > bo_break_atr_min
+bo_break_down = close < bo_box_low  and (bo_box_low - close) / atr5 > bo_break_atr_min
 
 stage2_break = bo_break_up or bo_break_down
 
