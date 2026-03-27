@@ -10,7 +10,6 @@ adx_period        = input.int(14,    "ADX期間",                minval=5,  maxv
 ema_period        = input.int(21,    "EMA期間",                minval=5,  maxval=50)
 atr_breakout_mult = input.float(1.5, "ATRブレイク倍率",         minval=1.0, maxval=3.0, step=0.1)
 atr_period        = input.int(14,    "ATR期間",                minval=5,  maxval=30)
-range_lookback    = input.int(10,    "レンジ判定バー数",         minval=5,  maxval=20)
 swing_length      = input.int(3,     "スイング検出バー数",       minval=2,  maxval=10)
 fvg_atr_min_mult  = input.float(0.3, "FVG最小サイズ(ATR倍率)", minval=0.1, maxval=1.0, step=0.1)
 zone_impulse_bars = input.int(6,     "インパルス判定バー数",     minval=3,  maxval=30)
@@ -23,6 +22,14 @@ bos_timeout_bars  = input.int(20,    "BOS Timeout Bars（5M換算100分）",
                                minval=5, maxval=50,
                                tooltip="BOSからこの本数以内にプルバックがなければキャンセル")
 show_debug        = input.bool(true, "デバッグテーブル表示")
+bo_lookback_bars = input.int(24,    "BREAKOUTレンジ認定期間",
+                              minval=12, maxval=48)
+bo_box_atr_max   = input.float(5.0,  "BREAKOUTボックス最大ATR倍率",
+                              minval=2.0, maxval=8.0, step=0.5)
+bo_adx_avg_max   = input.float(25.0, "BREAKOUTレンジADX上限",
+                              minval=15.0, maxval=35.0, step=1.0)
+bo_break_atr_min = input.float(0.2,  "BREAKOUTブレイク最小ATR倍率",
+                              minval=0.1, maxval=1.0, step=0.1)
 
 // ─── 描画設定 ─────────────────────────────────────────────────────────────────
 fvg_show  = input.bool(true, "FVG表示")
@@ -76,30 +83,15 @@ f_m15() =>
     _adx_avg5 = ta.sma(_adx, 5)
     _atr_ratio = _atr_ma20 > 0 ? _atr / _atr_ma20 : 1.0
     _adx_drop  = _adx_avg5 - _adx
-    _range_high = ta.highest(high[1], range_lookback)
-    _range_low  = ta.lowest(low[1],   range_lookback)
-    _adx_avg_lb = ta.sma(_adx, range_lookback)
     _is_rev = _adx >= adx_trend_min and _adx < (_adx_avg5 - adx_reversal_drop)
-    _is_bo  = (_atr > _atr_ma20 * atr_breakout_mult
-         and _adx_avg_lb < adx_range_max and _adx >= adx_range_max)
     _trend_align = ((h1_direction == "bull" and close > _ema)
          or (h1_direction == "bear" and close < _ema))
     _is_trend = _adx >= adx_trend_min and h1_trend_valid and _trend_align
-    _regime_int = _is_trend ? 1 : _is_bo ? 3 : _is_rev ? 2 : 0  // 優先順位変更: v4.1 TREND(1位) > BREAKOUT(2位) > REVERSAL(3位) > RANGE(4位)
+    _regime_int = _is_trend ? 1 : _is_rev ? 2 : 0
     _rev_dir   = h1_direction == "bull" ? 2 : 1
-    var string bo_direction_locked = "none"
-    var int _prev_regime_int = 0
-    string bo_direction_current = close > _range_high ? "buy" : close < _range_low ? "sell" : "none"
-    if _regime_int == 3 and _prev_regime_int != 3
-        bo_direction_locked := bo_direction_current != "none" ? bo_direction_current : h1_direction == "bull" ? "buy" : "sell"
-    else if _regime_int != 3
-        bo_direction_locked := "none"
-    _prev_regime_int := _regime_int
-    _bo_dir    = bo_direction_locked == "buy" ? 1 : bo_direction_locked == "sell" ? 2 : 0
     _trend_dir = h1_direction == "bull" and close > _ema ? 1 :
          h1_direction == "bear" and close < _ema ? 2 : 0
     _dir_int   = _regime_int == 2 ? _rev_dir :
-         _regime_int == 3 ? _bo_dir :
          _regime_int == 1 ? _trend_dir : 0
     [_regime_int, _dir_int, _adx, _atr, _atr_ma20, _adx_drop, _atr_ratio]
 
@@ -109,14 +101,45 @@ f_m15() =>
 
 // ─── 15M レジーム・方向デコード ───────────────────────────────────────────────
 string regime = m15_regime_int == 1 ? "TREND" :
-     m15_regime_int == 2 ? "REVERSAL" :
-     m15_regime_int == 3 ? "BREAKOUT" : "RANGE"
+     m15_regime_int == 2 ? "REVERSAL" : "RANGE"
 string direction = m15_dir_int == 1 ? "buy" :
      m15_dir_int == 2 ? "sell" : "none"
 
 // ─── 5M 計算 ──────────────────────────────────────────────────────────────────
 atr5      = ta.atr(atr_period)
 rsi_value = ta.rsi(close, rsi_period)
+
+// ── BREAKOUT Stage1: レンジ認定 ──
+// 過去N本の高安値幅がATRのX倍以内
+// かつ過去N本のADX平均がY未満
+bo_box_high      = ta.highest(high[1], bo_lookback_bars)
+bo_box_low       = ta.lowest(low[1],   bo_lookback_bars)
+bo_box_width     = bo_box_high - bo_box_low
+bo_box_atr_ratio = atr5 > 0 ? bo_box_width / atr5 : 999.0
+bo_adx_avg       = ta.sma(m15_adx, bo_lookback_bars)
+
+stage1_range = bo_box_atr_ratio < bo_box_atr_max and
+               bo_adx_avg < bo_adx_avg_max
+
+// ── BREAKOUT Stage2: ブレイク認定 ──
+// 終値が過去N本のボックス上限/下限をATRのZ倍超えている
+bo_break_up   = close > bo_box_high and
+                (close - bo_box_high) / atr5 > bo_break_atr_min
+bo_break_down = close < bo_box_low  and
+                (bo_box_low - close) / atr5 > bo_break_atr_min
+
+stage2_break = bo_break_up or bo_break_down
+
+// ── is_breakout: Stage1 AND Stage2 ──
+is_breakout = stage1_range and stage2_break
+
+// ── BREAKOUT 方向 ──
+string bo_direction = bo_break_up   ? "buy"  :
+                      bo_break_down ? "sell" : "none"
+
+// ── regime / direction 上書き（TREND優先） ──
+regime    := is_breakout and regime != "TREND" ? "BREAKOUT" : regime
+direction := regime == "BREAKOUT" ? bo_direction : direction
 
 // ─── CHoCH（5M、swing_length=3） ──────────────────────────────────────────────
 swing_high = ta.pivothigh(high, swing_length, swing_length)
