@@ -13,9 +13,17 @@ import sys
 import os
 import argparse
 from datetime import datetime
+from unittest.mock import patch
 
 import pandas as pd
 import numpy as np
+
+# scoring_engine はプロジェクトルートにあるため追加
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from scoring_engine import calculate_score
 
 # ─── 定数 ──────────────────────────────────────────────────────────────────────
 SL_ATR_MULT = 2.7
@@ -117,7 +125,8 @@ def simulate_trades(df: pd.DataFrame) -> pd.DataFrame:
     alert_fired=1 かつ direction != 0 の行をエントリーとしてシミュレートする。
     結果列 'outcome' を追加: 'win' / 'loss' / 'timeout'
     """
-    outcomes = [""] * len(df)
+    outcomes  = [""] * len(df)
+    exit_bars = [0] * len(df)
 
     # エントリー対象行のインデックスを取得
     entry_mask = (df["alert_fired"] == 1) & (df["direction"] != 0)
@@ -163,9 +172,11 @@ def simulate_trades(df: pd.DataFrame) -> pd.DataFrame:
 
             if hit_sl:
                 result = "loss"
+                exit_bars[idx] = j - idx
                 break
             if hit_tp:
                 result = "win"
+                exit_bars[idx] = j - idx
                 break
 
         outcomes[idx] = result
@@ -174,55 +185,42 @@ def simulate_trades(df: pd.DataFrame) -> pd.DataFrame:
         print()  # 改行
 
     df = df.copy()
-    df["outcome"] = outcomes
+    df["outcome"]  = outcomes
+    df["exit_bar"] = exit_bars
     return df
 
 
-# ─── 簡易スコア計算 ────────────────────────────────────────────────────────────
-def calc_score(row: pd.Series) -> float:
-    score = 0.0
-    choch     = int(row["choch"])
-    fvg       = int(row["fvg"])
-    zone      = int(row["zone"])
-    bos       = int(row["bos"])
-    ob        = int(row["ob"])
-    session   = int(row["session"])
-    atr_ratio = float(row["atr_ratio"])
-    h1_dir    = int(row["h1_direction"])
-    direction = int(row["direction"])
+# ─── CSVの1行をscoring_engineのalert形式に変換 ──────────────────────────────
+def csv_row_to_alert(row: dict) -> dict:
+    """CSVの1行をscoring_engine.calculate_score()が受け取れる
+    alert dict形式に変換する"""
 
-    if choch == 1:
-        score += 0.20
-    if fvg == 1:
-        score += 0.10
-    if zone == 1:
-        score += 0.10
-    if fvg == 1 and zone == 1:
-        score += 0.15
-    if bos == 1:
-        score += 0.20
-    if ob == 1:
-        score += 0.20
-    if ob == 1 and fvg == 1:
-        score += 0.10
+    # regime デコード: 1=TREND, 2=BREAKOUT, 3=RANGE, 4=REVERSAL
+    regime_map = {'1': 'TREND', '2': 'BREAKOUT', '3': 'RANGE', '4': 'REVERSAL'}
+    # direction デコード: 1=buy, -1=sell, 0=none
+    dir_map = {'1': 'buy', '-1': 'sell', '0': 'none'}
+    # session デコード: 5=london_ny, 4=london, 3=ny, 2=tokyo, 1=off
+    sess_map = {'5': 'london_ny', '4': 'london', '3': 'ny', '2': 'tokyo', '1': 'off'}
+    # h1_direction デコード: 1=bull, -1=bear
+    h1_map = {'1': 'bull', '-1': 'bear', '0': 'none'}
 
-    # h1方向一致判定
-    if (h1_dir == 1 and direction == 1) or (h1_dir == -1 and direction == -1):
-        score += 0.10
-
-    if session == 5:
-        score += 0.10
-    elif session == 4:
-        score += 0.05
-    elif session == 2:
-        score -= 0.10
-    elif session == 1:
-        score -= 0.20
-
-    if atr_ratio > 1.5:
-        score -= 0.05
-
-    return round(score, 4)
+    return {
+        'regime':          regime_map.get(str(row.get('regime', '3')), 'RANGE'),
+        'direction':       dir_map.get(str(row.get('direction', '0')), 'none'),
+        'h1_direction':    h1_map.get(str(row.get('h1_direction', '0')), 'none'),
+        'h1_adx':          float(row.get('h1_adx', 0)),
+        'm15_adx':         float(row.get('m15_adx', 0)),
+        'atr_ratio':       float(row.get('atr_ratio', 1.0)),
+        'choch_confirmed': str(row.get('choch', '0')) == '1',
+        'fvg_aligned':     str(row.get('fvg', '0')) == '1',
+        'zone_aligned':    str(row.get('zone', '0')) == '1',
+        'bos_confirmed':   str(row.get('bos', '0')) == '1',
+        'ob_aligned':      str(row.get('ob', '0')) == '1',
+        'sweep_detected':  str(row.get('sweep', '0')) == '1',
+        'session':         sess_map.get(str(row.get('session', '1')), 'off'),
+        'news_nearby':     False,
+        'rsi_divergence':  False,
+    }
 
 
 # ─── 集計ヘルパー ──────────────────────────────────────────────────────────────
@@ -279,7 +277,8 @@ def report(df: pd.DataFrame) -> None:
     print(f"{'regime':<20} | {'件数':>4} | {'勝率':>8} | {'PF':>6} | {'期待値':>6}")
     print("-" * 65)
     for code, name in sorted(REGIME_MAP.items()):
-        sub = resolved[entries["regime"] == code]
+        mask = (entries["regime"] == code).reindex(resolved.index, fill_value=False)
+        sub = resolved[mask]
         if len(sub) == 0:
             continue
         w = (sub["outcome"] == "win").sum()
@@ -292,7 +291,8 @@ def report(df: pd.DataFrame) -> None:
     print(f"{'session':<20} | {'件数':>4} | {'勝率':>8} | {'PF':>6} | {'期待値':>6}")
     print("-" * 65)
     for code, name in sorted(SESSION_MAP.items(), reverse=True):
-        sub = resolved[entries["session"] == code]
+        mask = (entries["session"] == code).reindex(resolved.index, fill_value=False)
+        sub = resolved[mask]
         if len(sub) == 0:
             continue
         w = (sub["outcome"] == "win").sum()
@@ -350,8 +350,20 @@ def report(df: pd.DataFrame) -> None:
     # ── スコア閾値シミュレーション ──
     print_section("スコア閾値シミュレーション")
 
-    entries["score"] = entries.apply(calc_score, axis=1)
-    entries_resolved["score"] = entries["score"]
+    # scoring_engine.calculate_score() を使ってスコアと判定を算出
+    scores = []
+    decisions = []
+    for _, row in entries.iterrows():
+        alert = csv_row_to_alert(row)
+        with patch('news_filter.is_news_blackout', return_value=False):
+            result = calculate_score(alert)
+        scores.append(result['score'])
+        decisions.append(result['decision'])
+
+    entries['score']    = scores
+    entries['decision'] = decisions
+    entries_resolved['score']    = entries.loc[entries_resolved.index, 'score']
+    entries_resolved['decision'] = entries.loc[entries_resolved.index, 'decision']
 
     # CSVの総日数
     date_min = entries["time"].dt.date.min()
@@ -361,7 +373,10 @@ def report(df: pd.DataFrame) -> None:
     print(f"{'閾値':>6} | {'通過件数':>8} | {'1日平均':>8} | {'勝率':>8} | {'PF':>6} | {'期待値':>6}")
     print("-" * 70)
     for thresh in SCORE_THRESHOLDS:
-        filtered = entries_resolved[entries_resolved["score"] >= thresh]
+        filtered = entries_resolved[
+            (entries_resolved["score"] >= thresh) &
+            (entries_resolved["decision"] != "reject")
+        ]
         t = len(filtered)
         if t == 0:
             print(f"{thresh:>6.2f} | {0:>8} | {'0.00':>8} | {'N/A':>8} | {'N/A':>6} | {'N/A':>6}")
@@ -396,6 +411,130 @@ def report(df: pd.DataFrame) -> None:
         if n > 0:
             print(f"  {label}: {n}日")
 
+    # ── 詳細レポート用フィルタリング（スコア閾値） ──
+    DETAIL_THRESHOLD = 0.50
+    entries_detail = entries_resolved[
+        entries_resolved["score"] >= DETAIL_THRESHOLD
+    ].copy()
+    total_detail_days = max(
+        (entries_detail["time"].dt.date.max() -
+         entries_detail["time"].dt.date.min()).days, 1
+    )
+    print(f"\n{'='*60}")
+    print(f"  詳細分析（スコア閾値 {DETAIL_THRESHOLD} 以上）")
+    print(f"  対象: {len(entries_detail)}件 / "
+          f"{len(entries_detail)/total_detail_days:.1f}件/日")
+    print(f"{'='*60}")
+
+    # ── 月別成績 ──
+    print_section("月別成績")
+    entries_detail["month"] = entries_detail["time"].dt.to_period("M").astype(str)
+    monthly = entries_detail.groupby("month")
+    print(f"{'月':>10} | {'件数':>4} | {'勝ち':>4} | {'負け':>4} | {'勝率':>7} | {'PF':>6} | {'月次損益':>10}")
+    print("-" * 60)
+    for month, grp in monthly:
+        w = (grp["outcome"] == "win").sum()
+        l = (grp["outcome"] == "loss").sum()
+        t = len(grp)
+        pnl_r = w * TP_ATR_MULT - l * SL_ATR_MULT
+        pnl_str = f"{pnl_r:+.1f}R"
+        print(f"{month:>10} | {t:>4} | {w:>4} | {l:>4} | "
+              f"{win_rate(w,t):>7} | {safe_pf(w,l):>6} | {pnl_str:>10}")
+
+    # ── 連勝・連敗分析 ──
+    print_section("連勝・連敗分析")
+    outcomes_seq = entries_detail["outcome"].tolist()
+    max_win_streak = max_loss_streak = 0
+    cur_streak = 1
+    for i in range(1, len(outcomes_seq)):
+        if outcomes_seq[i] == outcomes_seq[i-1]:
+            cur_streak += 1
+        else:
+            cur_streak = 1
+        if outcomes_seq[i] == "win":
+            max_win_streak = max(max_win_streak, cur_streak)
+        elif outcomes_seq[i] == "loss":
+            max_loss_streak = max(max_loss_streak, cur_streak)
+    if outcomes_seq:
+        if outcomes_seq[0] == "win":
+            max_win_streak = max(max_win_streak, 1)
+        else:
+            max_loss_streak = max(max_loss_streak, 1)
+    print(f"  最大連勝: {max_win_streak} 連勝")
+    print(f"  最大連敗: {max_loss_streak} 連敗")
+    # 連敗ごとの頻度
+    loss_streaks = []
+    cur = 0
+    for o in outcomes_seq:
+        if o == "loss":
+            cur += 1
+        else:
+            if cur > 0:
+                loss_streaks.append(cur)
+            cur = 0
+    if cur > 0:
+        loss_streaks.append(cur)
+    from collections import Counter
+    streak_counts = Counter(loss_streaks)
+    print(f"\n  連敗分布:")
+    for k in sorted(streak_counts.keys()):
+        print(f"    {k}連敗: {streak_counts[k]}回")
+
+    # ── ドローダウン分析 ──
+    print_section("ドローダウン分析（R単位）")
+    equity_curve = []
+    equity = 0.0
+    for o in outcomes_seq:
+        if o == "win":
+            equity += TP_ATR_MULT
+        elif o == "loss":
+            equity -= SL_ATR_MULT
+        equity_curve.append(equity)
+    peak = 0.0
+    max_dd = 0.0
+    max_dd_start = 0
+    max_dd_end = 0
+    for i, e in enumerate(equity_curve):
+        if e > peak:
+            peak = e
+            dd_start = i
+        dd = peak - e
+        if dd > max_dd:
+            max_dd = dd
+            max_dd_end = i
+    print(f"  最終損益:         {equity:+.1f}R")
+    print(f"  最大ドローダウン: -{max_dd:.1f}R")
+    if max_dd > 0:
+        print(f"  リカバリーファクター: {equity/max_dd:.2f}")
+    else:
+        print(f"  リカバリーファクター: ∞")
+
+    # ── 平均保有時間 ──
+    print_section("平均保有時間")
+    if "exit_bar" in entries_detail.columns:
+        resolved_with_exit = entries_detail[entries_detail["exit_bar"] > 0]
+        avg_bars = resolved_with_exit["exit_bar"].mean()
+        med_bars = resolved_with_exit["exit_bar"].median()
+        print(f"  平均保有バー数: {avg_bars:.1f}本 = 約{avg_bars*5/60:.1f}時間")
+        print(f"  中央値:         {med_bars:.0f}本 = 約{med_bars*5/60:.1f}時間")
+        win_bars  = resolved_with_exit[resolved_with_exit["outcome"]=="win"]["exit_bar"].mean()
+        loss_bars = resolved_with_exit[resolved_with_exit["outcome"]=="loss"]["exit_bar"].mean()
+        print(f"  勝ちトレード平均: {win_bars:.1f}本 = 約{win_bars*5/60:.1f}時間")
+        print(f"  負けトレード平均: {loss_bars:.1f}本 = 約{loss_bars*5/60:.1f}時間")
+
+    # ── 方向別成績 ──
+    print_section("方向別成績（Buy / Sell）")
+    for dir_val, dir_name in [(1, "BUY"), (-1, "SELL")]:
+        sub = entries_detail[entries_detail["direction"] == dir_val]
+        if len(sub) == 0:
+            continue
+        w = (sub["outcome"] == "win").sum()
+        l = (sub["outcome"] == "loss").sum()
+        t = len(sub)
+        pnl = w * TP_ATR_MULT - l * SL_ATR_MULT
+        print(f"  {dir_name}: {t}件  勝率={win_rate(w,t)}  PF={safe_pf(w,l)}"
+              f"  損益={pnl:+.1f}R")
+
 
 # ─── CSV出力 ───────────────────────────────────────────────────────────────────
 def save_result_csv(df: pd.DataFrame) -> None:
@@ -404,7 +543,13 @@ def save_result_csv(df: pd.DataFrame) -> None:
     out_path = f"data/analysis_result_{ts}.csv"
 
     entries = df[(df["alert_fired"] == 1) & (df["direction"] != 0)].copy()
-    entries["score"] = entries.apply(calc_score, axis=1)
+    scores = []
+    for _, row in entries.iterrows():
+        alert = csv_row_to_alert(row)
+        with patch('news_filter.is_news_blackout', return_value=False):
+            result = calculate_score(alert)
+        scores.append(result['score'])
+    entries["score"] = scores
 
     out_cols = [
         "time", "open", "high", "low", "close",

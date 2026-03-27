@@ -15,7 +15,7 @@ SYSTEM_CONFIG = {
     # GOLD 5200ドル水準でATR15m≈ 8〜15ドル。SL=ATR×2.0で15〜20ドルの雑音耐性を確保
     "atr_sl_multiplier":    2.7,   # Optuna最適化 P2 (2026-03-12) PF1.435  旧: 2.0
     "atr_tp_multiplier":    6.0,   # Optuna最適化 P2 (2026-03-12) PF1.435  旧: 3.0
-    "max_sl_pips":          80.0,  # dollar単位
+    "max_sl_pips":          150.0,  # dollar単位
     "min_sl_pips":          8.0,   # dollar単位
     "pip_points":           10,    # GOLD: 1pip = 10point = $0.10
     # ATRボラティリティフィルター（異常値でエントリー禁止）
@@ -99,10 +99,6 @@ SYSTEM_CONFIG = {
     # デイリーブレイク前の警告マージン（分）
     # daily_break_start_m(45) - limit_cancel_warn_m(15) = 23:30 からキャンセル警戒
     "limit_cancel_warn_m":  15,
-    # デイリーブレイク前の全ポジション強制クローズ時刻（UTC）
-    # daily_break(23:45)の15分前 = 23:30
-    "eod_close_h": 23,
-    "eod_close_m": 30,
 }
 
 # ── ATRベースのSL/TP計算定数 ───────────────────────
@@ -184,7 +180,7 @@ SCORING_CONFIG = {
 
     # --- 判定閾値 ---
     # 根拠: bos単独(+0.30)+tokyo(+0.10)=0.40→approve　bos単独+london(-0.15)=0.15→reject
-    "approve_threshold":      0.40,   # CSVデータ分析に基づき再設定（旧 0.15）
+    "approve_threshold":      0.50,   # CSVデータ分析に基づき再設定（旧 0.40, 2026-03-22）
     "wait_threshold":         0.00,
 
     # --- BOS関連（実データで最も信頼性が高い） ---

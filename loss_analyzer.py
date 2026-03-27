@@ -25,6 +25,36 @@ from config import SYSTEM_CONFIG
 
 logger = logging.getLogger(__name__)
 
+
+def _convert_to_usd(amount: float) -> float:
+    """
+    MT5の損益（口座通貨建て）をUSDに換算する。
+    口座通貨がUSDの場合はそのまま返す。
+    換算レート取得失敗時はフォールバックレート（150.0）を使用。
+    """
+    if not MT5_AVAILABLE:
+        return amount
+    try:
+        acc = mt5.account_info()
+        if acc is None:
+            return amount
+        currency = acc.currency
+        if currency == "USD":
+            return amount
+        # JPY → USD: USDJPY のbidで割る
+        sym = f"USD{currency}"   # 例: USDJPY
+        info = mt5.symbol_info(sym)
+        if info is not None and info.bid > 0:
+            return round(amount / info.bid, 2)
+        # フォールバック: 150円/ドル
+        logger.warning(
+            "⚠️ %s レート取得失敗。フォールバックレート150.0を使用", sym)
+        return round(amount / 150.0, 2)
+    except Exception as e:
+        logger.error("_convert_to_usd エラー: %s", e)
+        return amount
+
+
 LOSS_ALERT_USD        = SYSTEM_CONFIG["loss_alert_usd"]
 POSITION_CHECK_SEC    = SYSTEM_CONFIG["position_check_interval_sec"]
 
@@ -123,7 +153,8 @@ class LossAnalyzer:
             logger.warning("決済履歴なし: ticket=%d", ticket)
             return
 
-        total_pnl = sum(d.profit for d in history)
+        total_pnl_raw = sum(d.profit for d in history)
+        total_pnl     = _convert_to_usd(total_pnl_raw)
         pips      = 0.0
         outcome   = "manual"
 
@@ -163,8 +194,8 @@ class LossAnalyzer:
         )
 
         logger.info(
-            "📊 決済記録: ticket=%d outcome=%s pnl=%.2f USD pips=%.1f",
-            ticket, outcome, total_pnl, pips
+            "📊 決済記録: ticket=%d outcome=%s pnl_raw=%.2f→pnl_usd=%.2f pips=%.1f",
+            ticket, outcome, total_pnl_raw, total_pnl, pips
         )
 
         # v3.0: scoring_history へのフィードバック

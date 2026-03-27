@@ -354,13 +354,6 @@ def startup():
         name="PendingMonitor"
     ).start()
 
-    # eod_close_monitor（デイリーブレイク前の全ポジション強制クローズ）
-    threading.Thread(
-        target=_eod_close_loop,
-        daemon=True,
-        name="EodCloseMonitor"
-    ).start()
-
     # MetaOptimizer: 毎週日曜UTC20:00に自動実行（バックグラウンド）
     from meta_optimizer import MetaOptimizer
     meta_opt = MetaOptimizer()
@@ -391,70 +384,6 @@ def _build_notifier():
         def notify_loss_alert(self, pnl_usd, ticket):
             n.notify_loss_alert(pnl_usd, ticket)
     return _Notifier()
-
-
-def _eod_close_loop():
-    """5秒ごとに監視し、23:30 UTC 以降はデイリーブレイク終了（翌01:00 UTC）まで
-    残存ポジションを継続クローズする。
-    eod_close 発火後に開設された新ポジションも見逃さないよう、
-    1日1回ではなく「EOD時間帯にポジションがある限り繰り返す」設計。"""
-    try:
-        import executor as exc_mod
-    except ImportError:
-        return
-
-    EOD_H = SYSTEM_CONFIG["eod_close_h"]
-    EOD_M = SYSTEM_CONFIG["eod_close_m"]
-    DB_END_H = SYSTEM_CONFIG["daily_break_end_h"]   # 1（翌01:00 UTC）
-
-    from datetime import datetime, timezone, time as dtime
-    last_log_minute = None   # 同一分に重複ログを出さないための制御
-
-    while True:
-        try:
-            now = datetime.now(timezone.utc)
-            t = now.time()
-
-            # EOD時間帯判定: 23:30以降 OR 翌00:00〜01:00（日付をまたぐケア）
-            in_eod_window = (
-                t >= dtime(EOD_H, EOD_M)          # 23:30〜23:59
-                or t < dtime(DB_END_H, 0)          # 00:00〜00:59（翌01:00まで）
-            )
-
-            if in_eod_window:
-                try:
-                    import MetaTrader5 as mt5
-                    positions = mt5.positions_get(symbol=SYSTEM_CONFIG["symbol"])
-                    has_positions = positions is not None and len(positions) > 0
-                except Exception:
-                    has_positions = True   # MT5取得失敗時は安全側（クローズ試行）
-
-                if has_positions:
-                    cur_min = now.strftime("%H:%M")
-                    if last_log_minute != cur_min:
-                        logger.info(
-                            "⏰ EODクローズ実行（%02d:%02d UTC）残ポジションを決済します",
-                            EOD_H, EOD_M
-                        )
-                        last_log_minute = cur_min
-
-                    results = exc_mod.close_all_positions(reason="eod_close")
-                    closed_count = sum(1 for r in results if r["success"])
-                    if closed_count > 0:
-                        logger.info(
-                            "✅ EODクローズ: %d/%d ポジション決済",
-                            closed_count, len(results)
-                        )
-                        log_event(
-                            "eod_close_summary",
-                            f"closed={closed_count}/{len(results)}"
-                        )
-                    time.sleep(30)   # クローズ後は30秒待機（残ポジションを再チェック）
-                    continue
-
-        except Exception as e:
-            logger.error("EodCloseMonitor例外: %s", e)
-        time.sleep(5)
 
 
 def _pending_monitor_loop():

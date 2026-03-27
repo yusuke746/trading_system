@@ -275,8 +275,9 @@ class TestBreakoutApprove(unittest.TestCase):
         """
         BREAKOUT: choch_confirmed=False でもゲート通過。
         fvg_aligned + zone_aligned → fvg_and_zone_overlap ボーナス。
-        score = fvg_and_zone_overlap(0.15) + h1_direction_aligned(0.10)
-                + session_london_ny(0.10) + adx_normal(0.10) = 0.45
+        score = fvg_and_zone_overlap(0.15) + bos_confirmed(0.30)
+                + h1_direction_aligned(0.10) + session_london_ny(0.10)
+                + adx_normal(0.10) = 0.75 >= approve_threshold(0.50)
         """
         alert = _make_alert(
             regime="BREAKOUT",
@@ -287,6 +288,7 @@ class TestBreakoutApprove(unittest.TestCase):
             choch_confirmed=False,  # BREAKOUT はCHoCH不要
             fvg_aligned=True,
             zone_aligned=True,      # overlap: +0.15
+            bos_confirmed=True,     # +0.30 で閾値0.50超え
             session="london_ny",
         )
         result = calculate_score(alert)
@@ -537,6 +539,42 @@ class TestDirectionNoneRejected(unittest.TestCase):
         result = calculate_score(alert)
         self.assertEqual(result["decision"], "reject")
         self.assertTrue(any("direction=none" in r for r in result["reject_reasons"]))
+
+
+# ──────────────────────────────────────────────────────────
+# Gate1 BREAKOUT免除テスト
+# ──────────────────────────────────────────────────────────
+
+class TestGate1BreakoutExemption(unittest.TestCase):
+
+    def test_trend_h1_adx_low_rejected(self):
+        """regime=TREND, h1_adx=20 → Gate1でreject（変更なし）"""
+        alert = _make_alert(regime="TREND", h1_adx=20.0)
+        result = calculate_score(alert)
+        self.assertEqual(result["decision"], "reject")
+        self.assertTrue(any("Gate1" in r for r in result["reject_reasons"]))
+
+    def test_breakout_h1_adx_low_skips_gate1(self):
+        """regime=BREAKOUT, h1_adx=20 → Gate1をスキップ（新動作）"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            h1_adx=20.0,
+            fvg_aligned=True,
+            zone_aligned=True,
+        )
+        result = calculate_score(alert)
+        self.assertFalse(any("Gate1" in r for r in result["reject_reasons"]))
+
+    def test_breakout_h1_adx_high_passes(self):
+        """regime=BREAKOUT, h1_adx=30 → 通過（変更なし）"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            h1_adx=30.0,
+            fvg_aligned=True,
+            zone_aligned=True,
+        )
+        result = calculate_score(alert)
+        self.assertFalse(any("Gate1" in r for r in result["reject_reasons"]))
 
 
 # ──────────────────────────────────────────────────────────

@@ -441,3 +441,46 @@ plot(atr5,                      title="atr",          display=display.all)
 plot(m15_atr_ratio,             title="atr_ratio",    display=display.all)
 plot(csv_h1dir,                 title="h1_direction", display=display.all)
 plot(should_alert    ? 1 : 0,   title="alert_fired",  display=display.all)
+
+// ─── BREAKOUT Stage1/2 分析用（パラメータ決定のためのデータ収集）───
+// lookback期間の設定（2パターン同時取得）
+bo_lookback_24 = 24  // 2時間（5M足×24本）
+bo_lookback_48 = 48  // 4時間（5M足×48本）
+
+// ── Stage1: レンジ認定 ──
+// ボックス幅 = 期間内の最高値 - 最安値
+// [1]で現在バーを除外し、直近N本の前のバーまでの高安値を使用
+// （現在バーを含むと close <= high <= box_high が成立し上抜け判定が永遠にfalseになるため）
+box_high_24 = ta.highest(high[1], bo_lookback_24)
+box_low_24  = ta.lowest(low[1],   bo_lookback_24)
+box_width_24 = box_high_24 - box_low_24
+box_high_48 = ta.highest(high[1], bo_lookback_48)
+box_low_48  = ta.lowest(low[1],   bo_lookback_48)
+box_width_48 = box_high_48 - box_low_48
+
+// ボックス幅 ÷ ATR（何ATR分の幅か）
+// この値の分布を見てNの閾値を決める
+box_atr_ratio_24 = atr5 > 0 ? box_width_24 / atr5 : na
+box_atr_ratio_48 = atr5 > 0 ? box_width_48 / atr5 : na
+
+// Stage1 ADX平均（期間中のADX平均値）
+adx_avg_24 = ta.sma(m15_adx, bo_lookback_24)
+adx_avg_48 = ta.sma(m15_adx, bo_lookback_48)
+
+// ── Stage2: ブレイク認定 ──
+// 終値がボックス上下限をどれだけ超えているか（ATR比）
+// 正値=上抜け、負値=下抜け、0付近=ボックス内
+break_ratio_24 = atr5 <= 0 ? na :
+     close > box_high_24 ? (close - box_high_24) / atr5 :
+     close < box_low_24  ? (close - box_low_24)  / atr5 : 0.0
+break_ratio_48 = atr5 <= 0 ? na :
+     close > box_high_48 ? (close - box_high_48) / atr5 :
+     close < box_low_48  ? (close - box_low_48)  / atr5 : 0.0
+
+// ── plot（CSVエクスポート用） ──
+plot(box_atr_ratio_24, title="box_atr_ratio_24", display=display.all)
+plot(box_atr_ratio_48, title="box_atr_ratio_48", display=display.all)
+plot(adx_avg_24,       title="adx_avg_24",       display=display.all)
+plot(adx_avg_48,       title="adx_avg_48",       display=display.all)
+plot(break_ratio_24,   title="break_ratio_24",   display=display.all)
+plot(break_ratio_48,   title="break_ratio_48",   display=display.all)
