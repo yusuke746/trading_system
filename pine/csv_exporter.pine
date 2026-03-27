@@ -428,11 +428,13 @@ bo_lookback_48 = 48  // 4時間（5M足×48本）
 
 // ── Stage1: レンジ認定 ──
 // ボックス幅 = 期間内の最高値 - 最安値
-box_high_24 = ta.highest(high, bo_lookback_24)
-box_low_24  = ta.lowest(low,   bo_lookback_24)
+// [1]で現在バーを除外し、直近N本の前のバーまでの高安値を使用
+// （現在バーを含むと close <= high <= box_high が成立し上抜け判定が永遠にfalseになるため）
+box_high_24 = ta.highest(high[1], bo_lookback_24)
+box_low_24  = ta.lowest(low[1],   bo_lookback_24)
 box_width_24 = box_high_24 - box_low_24
-box_high_48 = ta.highest(high, bo_lookback_48)
-box_low_48  = ta.lowest(low,   bo_lookback_48)
+box_high_48 = ta.highest(high[1], bo_lookback_48)
+box_low_48  = ta.lowest(low[1],   bo_lookback_48)
 box_width_48 = box_high_48 - box_low_48
 
 // ボックス幅 ÷ ATR（何ATR分の幅か）
