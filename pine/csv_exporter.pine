@@ -286,11 +286,8 @@ bool fvg_hit_bull = false
 int _bfs = array.size(bull_fvg_lo)
 if _bfs > 0
     for i = 0 to _bfs - 1
-        bool already_used = array.size(bull_fvg_used) > i
-                            ? array.get(bull_fvg_used, i) : false
-        if not already_used
-            and close >= array.get(bull_fvg_lo, i)
-            and close <= array.get(bull_fvg_hi, i)
+        bool already_used = array.size(bull_fvg_used) > i ? array.get(bull_fvg_used, i) : false
+        if not already_used and close >= array.get(bull_fvg_lo, i) and close <= array.get(bull_fvg_hi, i)
             bull_fvg_hit_idx := i
             fvg_hit_bull     := true
             break
@@ -300,16 +297,15 @@ bool fvg_hit_bear = false
 int _bbs = array.size(bear_fvg_lo)
 if _bbs > 0
     for i = 0 to _bbs - 1
-        bool already_used = array.size(bear_fvg_used) > i
-                            ? array.get(bear_fvg_used, i) : false
-        if not already_used
-            and close >= array.get(bear_fvg_lo, i)
-            and close <= array.get(bear_fvg_hi, i)
+        bool already_used = array.size(bear_fvg_used) > i ? array.get(bear_fvg_used, i) : false
+        if not already_used and close >= array.get(bear_fvg_lo, i) and close <= array.get(bear_fvg_hi, i)
             bear_fvg_hit_idx := i
             fvg_hit_bear     := true
             break
 
-bool fvg_hit = fvg_hit_bull or fvg_hit_bear
+bool fvg_hit     = fvg_hit_bull or fvg_hit_bear
+bool fvg_aligned = direction == "buy"  ? fvg_hit_bull :
+     direction == "sell" ? fvg_hit_bear : false
 
 // ─── Zone（5M） ───────────────────────────────────────────────────────────────
 var int   dem_cand_bar  = na
@@ -394,11 +390,8 @@ bool zone_hit_dem = false
 int _ds = array.size(dem_lo)
 if _ds > 0
     for i = 0 to _ds - 1
-        bool already_used = array.size(dem_used) > i
-                            ? array.get(dem_used, i) : false
-        if not already_used
-            and close >= array.get(dem_lo, i)
-            and close <= array.get(dem_hi, i)
+        bool already_used = array.size(dem_used) > i ? array.get(dem_used, i) : false
+        if not already_used and close >= array.get(dem_lo, i) and close <= array.get(dem_hi, i)
             dem_hit_idx  := i
             zone_hit_dem := true
             break
@@ -408,16 +401,15 @@ bool zone_hit_sup = false
 int _ss = array.size(sup_lo)
 if _ss > 0
     for i = 0 to _ss - 1
-        bool already_used = array.size(sup_used) > i
-                            ? array.get(sup_used, i) : false
-        if not already_used
-            and close >= array.get(sup_lo, i)
-            and close <= array.get(sup_hi, i)
+        bool already_used = array.size(sup_used) > i ? array.get(sup_used, i) : false
+        if not already_used and close >= array.get(sup_lo, i) and close <= array.get(sup_hi, i)
             sup_hit_idx  := i
             zone_hit_sup := true
             break
 
-bool zone_hit = zone_hit_dem or zone_hit_sup
+bool zone_hit     = zone_hit_dem or zone_hit_sup
+bool zone_aligned = direction == "buy"  ? zone_hit_dem :
+     direction == "sell" ? zone_hit_sup : false
 
 // ─── セッション判定（UTC基準） ─────────────────────────────────────────────────
 int h_utc = hour(time, "UTC")
