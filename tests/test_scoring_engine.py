@@ -173,13 +173,14 @@ class TestTrendRejectChoch(unittest.TestCase):
         )
 
     def test_trend_approve_choch_only(self):
-        """TREND: choch=True のみでGate3通過（OR緩和）→ approve"""
+        """TREND: choch=True のみでGate3通過（OR緩和），スコアはwait"""
         alert = _make_alert(
             choch_confirmed=True,
             fvg_aligned=False,
             zone_aligned=False,
             bos_confirmed=False,
             ob_aligned=False,
+            m15_adx=20.0,   # ADX寄与をゼロにしてGate3孤立テスト
         )
         result = calculate_score(alert)
 
