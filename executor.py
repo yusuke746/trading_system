@@ -28,8 +28,9 @@ SYMBOL         = SYSTEM_CONFIG["symbol"]
 MAX_POSITIONS  = SYSTEM_CONFIG["max_positions"]
 MIN_MARGIN     = SYSTEM_CONFIG["min_free_margin"]
 RISK_PERCENT   = SYSTEM_CONFIG["risk_percent"]
-ATR_SL_MULT    = SYSTEM_CONFIG["atr_sl_multiplier"]
-ATR_TP_MULT    = SYSTEM_CONFIG["atr_tp_multiplier"]
+ATR_SL_MULT             = SYSTEM_CONFIG["atr_sl_multiplier"]
+ATR_TP_MULT             = SYSTEM_CONFIG["atr_tp_multiplier"]
+ATR_BREAKOUT_TP_MULT    = SYSTEM_CONFIG["breakout_tp_multiplier"]
 MAX_SL_PIPS    = SYSTEM_CONFIG["max_sl_pips"]
 MIN_SL_PIPS    = SYSTEM_CONFIG["min_sl_pips"]
 PIP_POINTS     = SYSTEM_CONFIG["pip_points"]
@@ -205,12 +206,20 @@ def build_order_params(trigger: dict, ai_result: dict,
     # 動的パラメータ取得（市場環境・成績に基づくATR乗数調整）
     live_params = param_optimizer.get_live_params()
     dyn_sl_mult = live_params.get("atr_sl_multiplier", ATR_SL_MULT)
-    dyn_tp_mult = live_params.get("atr_tp_multiplier", ATR_TP_MULT)
+
+    # BREAKOUT レジームは短いTPを使用（ブレイクアウト後の工定は5M足では短いのでATR×3.5〒最適）
+    trigger_regime = trigger.get("regime", "TREND")
+    base_tp_mult = ATR_BREAKOUT_TP_MULT if trigger_regime == "BREAKOUT" else ATR_TP_MULT
+    dyn_tp_mult = live_params.get("atr_tp_multiplier", base_tp_mult)
+    # param_optimizerの増分は履歴ベースのためBREAKOUTでも反映する（デルタ分のみ）
+    if trigger_regime == "BREAKOUT":
+        tp_optimizer_delta = live_params.get("atr_tp_multiplier", ATR_TP_MULT) - ATR_TP_MULT
+        dyn_tp_mult = ATR_BREAKOUT_TP_MULT + tp_optimizer_delta
 
     # セッション補正: ベース値にのみ適用し、param_optimizerの増分は加算
     # デルタ = param_optimizerがベース値から調整した絶対量
     sl_delta = dyn_sl_mult - ATR_SL_MULT
-    tp_delta = dyn_tp_mult - ATR_TP_MULT
+    tp_delta = dyn_tp_mult - base_tp_mult
 
     session_info = get_current_session()
     session_name = session_info.get("session", "London")
@@ -219,7 +228,7 @@ def build_order_params(trigger: dict, ai_result: dict,
 
     # ベース値にセッション補正を適用し、増分を加算（重複乗算を防ぐ）
     dyn_sl_mult = round(ATR_SL_MULT * sess_adj["sl_mult"] + sl_delta, 4)
-    dyn_tp_mult = round(ATR_TP_MULT * sess_adj["tp_mult"] + tp_delta, 4)
+    dyn_tp_mult = round(base_tp_mult * sess_adj["tp_mult"] + tp_delta, 4)
     logger.info(
         "📅 セッション補正(デルタ方式): session=%s "
         "sl_mult=%.2f(delta=%.2f) tp_mult=%.2f(delta=%.2f)",

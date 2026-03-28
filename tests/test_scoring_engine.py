@@ -104,7 +104,7 @@ class TestTrendApprove(unittest.TestCase):
             direction="buy",
             h1_direction="bull",
             h1_adx=30.0,
-            m15_adx=36.0,       # adx_above_35: +0.25
+            m15_adx=30.0,       # adx_normal: +0.10
             choch_confirmed=True,  # gate pass + choch_strong: +0.10
             fvg_aligned=True,
             zone_aligned=True,  # fvg_and_zone_overlap: +0.15
@@ -173,14 +173,13 @@ class TestTrendRejectChoch(unittest.TestCase):
         )
 
     def test_trend_approve_choch_only(self):
-        """TREND: choch=True のみでGate3通過（OR緩和），スコアはwait"""
+        """TREND: choch=True のみでGate3通過（OR緩和）→ approve"""
         alert = _make_alert(
             choch_confirmed=True,
             fvg_aligned=False,
             zone_aligned=False,
             bos_confirmed=False,
             ob_aligned=False,
-            m15_adx=20.0,   # ADX寄与をゼロにしてGate3孤立テスト
         )
         result = calculate_score(alert)
 
@@ -278,14 +277,14 @@ class TestBreakoutApprove(unittest.TestCase):
         fvg_aligned + zone_aligned → fvg_and_zone_overlap ボーナス。
         score = fvg_and_zone_overlap(0.30) + bos_confirmed(0.30)
                 + h1_direction_aligned(0.10) + session_london_ny(-0.15)
-                + atr_ratio_normal(0.05) + adx_above_35(0.25) = 0.85 >= approve_threshold(0.50)
+                + atr_ratio_normal(0.05) + adx_normal(0.10) = 0.70 >= approve_threshold(0.50)
         """
         alert = _make_alert(
             regime="BREAKOUT",
             direction="buy",
             h1_direction="bull",
             h1_adx=30.0,
-            m15_adx=36.0,
+            m15_adx=30.0,
             choch_confirmed=False,  # BREAKOUT はCHoCH不要
             fvg_aligned=True,
             zone_aligned=True,      # overlap: +0.15
@@ -484,11 +483,11 @@ class TestBosObScoring(unittest.TestCase):
 
 class TestApproveThreshold(unittest.TestCase):
     # CHoCH単体スコアのみを測定するため、他の加点要素を中立化する共通設定:
-    #   m15_adx=20    → adx_25_35(-0.10)/adx_above_35(+0.25) いずれの範囲にも該当しない→加点なし
+    #   m15_adx=36    → adx_normal(+0.10) の範囲[25,35]から外れ加点なし
     #   h1_direction="bear" + direction="buy" → h1_direction_aligned(+0.10) 不適用
     #   atr_ratio=0.5 → atr_ratio_normal(+0.05) の範囲[0.8,1.5]から外れ加点なし
     _ISOLATED = dict(
-        m15_adx=20.0,
+        m15_adx=36.0,
         h1_direction="bear",
         direction="buy",
         atr_ratio=0.5,

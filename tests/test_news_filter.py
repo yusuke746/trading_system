@@ -72,11 +72,12 @@ class TestNewsFilterApiError(unittest.TestCase):
         import MetaTrader5 as mt5_mock  # 存在してもしなくても patch で上書き
 
         with patch("news_filter.MT5_AVAILABLE", True), \
+             patch("news_filter.MT5_CALENDAR_AVAILABLE", True), \
              patch("news_filter.NEWS_FILTER_ENABLED", True), \
              patch("news_filter.NEWS_FILTER_FAIL_SAFE", fail_safe), \
              patch("news_filter.log_event"), \
              patch("news_filter.mt5") as mock_mt5:
-            mock_mt5.calendar_event_get.side_effect = RuntimeError("API error")
+            mock_mt5.calendar_value_get.side_effect = RuntimeError("API error")
             import news_filter
             return news_filter.check_news_filter()
 

@@ -239,8 +239,8 @@ class TestFallbackStructurize(unittest.TestCase):
         self.assertIn("adx_rising", missing)
 
     def test_atr_expanding_added_when_atr_none(self):
-        """atr14 が None のとき atr_expanding も fields_missing に追加される"""
-        ctx = _make_context(atr14=None)
+        """atr_percentile_15m が None のとき atr_expanding も fields_missing に追加される"""
+        ctx = _make_context(atr_percentile_15m=None)
         result = _fallback_structurize(ctx)
         missing = result["data_completeness"]["fields_missing"]
         self.assertIn("atr_expanding", missing)
