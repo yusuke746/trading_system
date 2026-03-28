@@ -140,15 +140,11 @@ if not na(swing_low)
 
 // Bullish CHoCH：切り下げ高値（LH）を上抜いた場合のみ
 // last_swing_high < prev_swing_high = Lower High が確認できている
-bullish_choch = not na(last_swing_high) and not na(prev_swing_high)
-    and last_swing_high < prev_swing_high
-    and close > last_swing_high and close[1] <= last_swing_high
+bullish_choch = not na(last_swing_high) and not na(prev_swing_high) and last_swing_high < prev_swing_high and close > last_swing_high and close[1] <= last_swing_high
 
 // Bearish CHoCH：切り上げ安値（HL）を下抜いた場合のみ
 // last_swing_low > prev_swing_low = Higher Low が確認できている
-bearish_choch = not na(last_swing_low) and not na(prev_swing_low)
-    and last_swing_low > prev_swing_low
-    and close < last_swing_low  and close[1] >= last_swing_low
+bearish_choch = not na(last_swing_low) and not na(prev_swing_low) and last_swing_low > prev_swing_low and close < last_swing_low and close[1] >= last_swing_low
 
 bool choch_confirmed = direction == "buy"  ? bullish_choch :
      direction == "sell" ? bearish_choch : false
