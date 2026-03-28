@@ -128,23 +128,14 @@ swing_low  = ta.pivotlow(low,  swing_length, swing_length)
 
 var float last_swing_high = na
 var float last_swing_low  = na
-var float prev_swing_high = na
-var float prev_swing_low  = na
 
 if not na(swing_high)
-    prev_swing_high := last_swing_high   // 更新前に退避
     last_swing_high := swing_high
 if not na(swing_low)
-    prev_swing_low  := last_swing_low    // 更新前に退避
-    last_swing_low  := swing_low
+    last_swing_low := swing_low
 
-// Bullish CHoCH：切り下げ高値（LH）を上抜いた場合のみ
-// last_swing_high < prev_swing_high = Lower High が確認できている
-bullish_choch = not na(last_swing_high) and not na(prev_swing_high) and last_swing_high < prev_swing_high and close > last_swing_high and close[1] <= last_swing_high
-
-// Bearish CHoCH：切り上げ安値（HL）を下抜いた場合のみ
-// last_swing_low > prev_swing_low = Higher Low が確認できている
-bearish_choch = not na(last_swing_low) and not na(prev_swing_low) and last_swing_low > prev_swing_low and close < last_swing_low and close[1] >= last_swing_low
+bullish_choch = not na(last_swing_high) and close > last_swing_high and close[1] <= last_swing_high
+bearish_choch = not na(last_swing_low)  and close < last_swing_low  and close[1] >= last_swing_low
 
 bool choch_confirmed = direction == "buy"  ? bullish_choch :
      direction == "sell" ? bearish_choch : false
