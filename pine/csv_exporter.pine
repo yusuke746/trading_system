@@ -408,15 +408,16 @@ if _ss > 0
             break
 
 bool zone_hit     = zone_hit_dem or zone_hit_sup
-bool zone_aligned = direction == "buy"  ? zone_hit_dem :
-     direction == "sell" ? zone_hit_sup : false
+bool zone_aligned = direction == "buy" ? zone_hit_dem : direction == "sell" ? zone_hit_sup : false
+
+if zone_aligned and direction == "buy" and dem_hit_idx >= 0 and dem_hit_idx < array.size(dem_used)
+    array.set(dem_used, dem_hit_idx, true)
+if zone_aligned and direction == "sell" and sup_hit_idx >= 0 and sup_hit_idx < array.size(sup_used)
+    array.set(sup_used, sup_hit_idx, true)
 
 // ─── セッション判定（UTC基準） ─────────────────────────────────────────────────
 int h_utc = hour(time, "UTC")
-string session = h_utc >= 13 and h_utc < 17 ? "london_ny" :
-     h_utc >= 8  and h_utc < 13 ? "london"    :
-     h_utc >= 17 and h_utc < 21 ? "ny"        :
-     h_utc >= 0  and h_utc < 6  ? "tokyo"     : "off"
+string session = h_utc >= 13 and h_utc < 17 ? "london_ny" : h_utc >= 8 and h_utc < 13 ? "london" : h_utc >= 17 and h_utc < 21 ? "ny" : h_utc >= 0 and h_utc < 6 ? "tokyo" : "off"
 
 // ─── スイープ検出（5M） ────────────────────────────────────────────────────────
 sweep_lookback = swing_length * 2
