@@ -104,8 +104,8 @@ class TestTrendApprove(unittest.TestCase):
             direction="buy",
             h1_direction="bull",
             h1_adx=30.0,
-            m15_adx=30.0,       # adx_normal: +0.10
-            choch_confirmed=True,  # gate pass + choch_strong: +0.20
+            m15_adx=36.0,       # adx_above_35: +0.25
+            choch_confirmed=True,  # gate pass + choch_strong: +0.10
             fvg_aligned=True,
             zone_aligned=True,  # fvg_and_zone_overlap: +0.15
             session="london_ny",  # session_london_ny: +0.10
@@ -275,16 +275,16 @@ class TestBreakoutApprove(unittest.TestCase):
         """
         BREAKOUT: choch_confirmed=False でもゲート通過。
         fvg_aligned + zone_aligned → fvg_and_zone_overlap ボーナス。
-        score = fvg_and_zone_overlap(0.15) + bos_confirmed(0.30)
-                + h1_direction_aligned(0.10) + session_london_ny(0.10)
-                + adx_normal(0.10) = 0.75 >= approve_threshold(0.50)
+        score = fvg_and_zone_overlap(0.30) + bos_confirmed(0.30)
+                + h1_direction_aligned(0.10) + session_london_ny(-0.15)
+                + atr_ratio_normal(0.05) + adx_above_35(0.25) = 0.85 >= approve_threshold(0.50)
         """
         alert = _make_alert(
             regime="BREAKOUT",
             direction="buy",
             h1_direction="bull",
             h1_adx=30.0,
-            m15_adx=30.0,
+            m15_adx=36.0,
             choch_confirmed=False,  # BREAKOUT はCHoCH不要
             fvg_aligned=True,
             zone_aligned=True,      # overlap: +0.15
@@ -483,11 +483,11 @@ class TestBosObScoring(unittest.TestCase):
 
 class TestApproveThreshold(unittest.TestCase):
     # CHoCH単体スコアのみを測定するため、他の加点要素を中立化する共通設定:
-    #   m15_adx=36    → adx_normal(+0.10) の範囲[25,35]から外れ加点なし
+    #   m15_adx=20    → adx_25_35(-0.10)/adx_above_35(+0.25) いずれの範囲にも該当しない→加点なし
     #   h1_direction="bear" + direction="buy" → h1_direction_aligned(+0.10) 不適用
     #   atr_ratio=0.5 → atr_ratio_normal(+0.05) の範囲[0.8,1.5]から外れ加点なし
     _ISOLATED = dict(
-        m15_adx=36.0,
+        m15_adx=20.0,
         h1_direction="bear",
         direction="buy",
         atr_ratio=0.5,
@@ -503,25 +503,25 @@ class TestApproveThreshold(unittest.TestCase):
         self.assertEqual(result["decision"], "reject")
 
     def test_choch_london_approve(self):
-        """CHoCH単体 + london → reject（score=0.10-0.15=-0.05 < wait_threshold=0.00）"""
+        """CHoCH単体 + london → reject（score=0.10-0.25=-0.15 < wait_threshold=0.00）"""
         alert = _make_alert(choch_confirmed=True, session="london", **self._ISOLATED)
         result = calculate_score(alert)
         self.assertEqual(result["decision"], "reject")
 
     def test_choch_ny_approve(self):
-        """CHoCH単体 + ny → wait（score=0.10+0.05=0.15 < approve_threshold=0.40, >= 0.00）"""
+        """CHoCH単体 + ny → wait（score=0.10+0.10=0.20 < approve_threshold=0.50, >= 0.00）"""
         alert = _make_alert(choch_confirmed=True, session="ny", **self._ISOLATED)
         result = calculate_score(alert)
         self.assertEqual(result["decision"], "wait")
 
     def test_choch_tokyo_wait(self):
-        """CHoCH単体 + tokyo → wait（score=0.10+0.10=0.20 < approve_threshold=0.40）"""
+        """CHoCH単体 + tokyo → wait（score=0.10+0.10=0.20 < approve_threshold=0.50）"""
         alert = _make_alert(choch_confirmed=True, session="tokyo", **self._ISOLATED)
         result = calculate_score(alert)
         self.assertEqual(result["decision"], "wait")
 
     def test_choch_off_wait(self):
-        """CHoCH単体 + off → wait（score=0.00 >= wait_threshold）"""
+        """CHoCH単体 + off → wait（score=0.10-0.05=0.05 >= wait_threshold=0.00）"""
         alert = _make_alert(choch_confirmed=True, session="off", **self._ISOLATED)
         result = calculate_score(alert)
         self.assertIn(result["decision"], ["wait", "reject"])

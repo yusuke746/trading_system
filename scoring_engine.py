@@ -188,16 +188,12 @@ def _apply_fvg_zone_penalty(alert: dict, cfg: dict, breakdown: dict) -> None:
 
 
 def _apply_adx_score(alert: dict, cfg: dict, breakdown: dict) -> None:
-    """15M ADX による加点・減点"""
+    """15M ADX による加点・減点（2段階）"""
     m15_adx = float(alert.get("m15_adx", 0))
-    regime  = alert.get("regime", "RANGE")
-
-    if 25 <= m15_adx <= 35:
-        breakdown["adx_normal"] = cfg["adx_normal"]
-
-    # REVERSAL で ADX が高すぎる場合はペナルティ
-    if regime == "REVERSAL" and m15_adx > 35:
-        breakdown["adx_reversal_penalty"] = cfg["adx_reversal_penalty"]
+    if m15_adx > 35:
+        breakdown["adx_above_35"] = cfg.get("adx_above_35", 0.25)
+    elif 25 <= m15_adx <= 35:
+        breakdown["adx_25_35"] = cfg.get("adx_25_35", -0.10)
 
 
 def _apply_h1_direction_score(alert: dict, cfg: dict, breakdown: dict) -> None:

@@ -203,8 +203,9 @@ SCORING_CONFIG = {
     "rsi_divergence":         0.00,   # TODO: STEP4で正式実装（旧 0.15）
 
     # --- 15M ADX 強度 ---
-    "adx_normal":             0.10,   # m15_adx 25〜35（健全なトレンド強度）
-    "adx_reversal_penalty":  -0.10,   # REVERSAL かつ m15_adx > 35
+    "adx_25_35":             -0.10,   # m15_adx 25〜35（過熱ではないが方向性が乏しい）
+    "adx_above_35":           0.25,   # m15_adx 35超（強いトレンド強度）
+    "adx_reversal_penalty":  -0.10,   # REVERSAL かつ m15_adx > 35（現在未使用・互換保持）
 
     # --- 1H 方向一致 ---
     "h1_direction_aligned":   0.10,   # h1_direction と direction が一致
