@@ -497,10 +497,10 @@ class TestApproveThreshold(unittest.TestCase):
     )
 
     def test_choch_london_ny_approve(self):
-        """CHoCH単体 + london_ny → wait（score=0.10-0.10=0.00 >= wait_threshold=0.00）"""
+        """CHoCH単体 + london_ny → reject（score=0.10-0.15=-0.05 < wait_threshold=0.00）"""
         alert = _make_alert(choch_confirmed=True, session="london_ny", **self._ISOLATED)
         result = calculate_score(alert)
-        self.assertEqual(result["decision"], "wait")
+        self.assertEqual(result["decision"], "reject")
 
     def test_choch_london_approve(self):
         """CHoCH単体 + london → reject（score=0.10-0.15=-0.05 < wait_threshold=0.00）"""
