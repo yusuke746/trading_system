@@ -331,13 +331,9 @@ if fvg_aligned and direction == "sell" and bear_fvg_hit_idx >= 0 and bear_fvg_hi
     array.set(bear_fvg_used, bear_fvg_hit_idx, true)
 
 float fvg_size_atr = 0.0
-if fvg_aligned and direction == "buy"
-    and bull_fvg_hit_idx >= 0
-    and bull_fvg_hit_idx < array.size(bull_fvg_lo)
+if fvg_aligned and direction == "buy" and bull_fvg_hit_idx >= 0 and bull_fvg_hit_idx < array.size(bull_fvg_lo)
     fvg_size_atr := atr5 > 0 ? (array.get(bull_fvg_hi, bull_fvg_hit_idx) - array.get(bull_fvg_lo, bull_fvg_hit_idx)) / atr5 : 0.0
-if fvg_aligned and direction == "sell"
-    and bear_fvg_hit_idx >= 0
-    and bear_fvg_hit_idx < array.size(bear_fvg_lo)
+if fvg_aligned and direction == "sell" and bear_fvg_hit_idx >= 0 and bear_fvg_hit_idx < array.size(bear_fvg_lo)
     fvg_size_atr := atr5 > 0 ? (array.get(bear_fvg_hi, bear_fvg_hit_idx) - array.get(bear_fvg_lo, bear_fvg_hit_idx)) / atr5 : 0.0
 
 // ─── Zone（5M） ───────────────────────────────────────────────────────────────
