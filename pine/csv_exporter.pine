@@ -460,6 +460,7 @@ bool sweep_detected = sweep_low_pierce or sweep_high_pierce
 
 // ─── アラート発火条件 ──────────────────────────────────────────────────────────
 var int last_alert_bar = na
+var int bos_alert_seq  = 0   // 現在のBOSイベント内での発火回数
 bool cooldown_ok = na(last_alert_bar) or (bar_index - last_alert_bar) > cooldown_bars
 
 bool trend_entry_bos = regime == "TREND" and (bos_pending_bull or bos_pending_bear) and ob_aligned
@@ -474,6 +475,14 @@ if trend_entry_bos
     bos_pending_bear := false
     bos_bar_bull     := na
     bos_bar_bear     := na
+
+// BOS pending が終了したらシーケンスをリセット
+if not bos_confirmed
+    bos_alert_seq := 0
+
+// アラートが発火するバーでシーケンスをインクリメント
+if barstate.isconfirmed and should_alert and bos_confirmed
+    bos_alert_seq := bos_alert_seq + 1
 
 if barstate.isconfirmed and should_alert
     last_alert_bar := bar_index
@@ -506,6 +515,7 @@ plot(atr5,                      title="atr",          display=display.all)
 plot(m15_atr_ratio,             title="atr_ratio",    display=display.all)
 plot(csv_h1dir,                 title="h1_direction", display=display.all)
 plot(should_alert    ? 1 : 0,   title="alert_fired",  display=display.all)
+plot(bos_alert_seq,             title="bos_alert_seq", display=display.all)
 plot(ob_atr_ratio,              title="ob_atr_ratio",  display=display.all)
 plot(bos_age_bars,              title="bos_age_bars",  display=display.all)
 plot(fvg_size_atr,              title="fvg_size_atr",  display=display.all)
