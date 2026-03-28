@@ -185,11 +185,17 @@ var array<float> bear_ob_lo = array.new<float>()
 var array<float> bear_ob_hi = array.new<float>()
 
 if bullish_bos and close[1] < open[1]
-    array.push(bull_ob_lo, low[1])
-    array.push(bull_ob_hi, high[1])
+    ob_size   = high[1] - low[1]
+    ob_break  = close - high[1]          // BOSキャンドル(現在足)のOB上限突破量
+    if ob_size >= atr5 * 0.3 and ob_break >= atr5 * 0.5
+        array.push(bull_ob_lo, low[1])
+        array.push(bull_ob_hi, high[1])
 if bearish_bos and close[1] > open[1]
-    array.push(bear_ob_lo, low[1])
-    array.push(bear_ob_hi, high[1])
+    ob_size   = high[1] - low[1]
+    ob_break  = low[1] - close           // BOSキャンドル(現在足)のOB下限突破量
+    if ob_size >= atr5 * 0.3 and ob_break >= atr5 * 0.5
+        array.push(bear_ob_lo, low[1])
+        array.push(bear_ob_hi, high[1])
 
 int _bull_obi = array.size(bull_ob_lo) - 1
 while _bull_obi >= 0
