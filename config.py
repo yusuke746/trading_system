@@ -211,10 +211,10 @@ SCORING_CONFIG = {
 
     # --- セッション別（実データに基づいて逆転修正） ---
     "session_tokyo":          0.10,   # 実績PF=1.14（旧 -0.10 から逆転）
-    "session_ny":             0.05,   # 実績PF=1.07（旧 0.00 から改善）
+    "session_ny":             0.10,   # 実績PF=1.18 勝率44.3%（旧 0.05 から改善）
     "session_off":           -0.05,   # 実績PF=0.93（旧 -0.20 から緩和）
-    "session_london_ny":     -0.10,   # 実績PF=0.89（旧 +0.10 から逆転）
-    "session_london":        -0.15,   # 実績PF=0.83（旧 +0.05 から逆転）
+    "session_london_ny":     -0.15,   # 実績PF=0.77 勝率34.2%（旧 -0.10 から強化）
+    "session_london":        -0.25,   # 実績PF=0.66 勝率30.9%（旧 -0.15 から強化）
 
     # --- ATR ratio（15M ATR / ATR MA20）---
     "atr_ratio_normal":       0.05,   # 0.8〜1.5 倍（正常ボラティリティ）
