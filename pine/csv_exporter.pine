@@ -285,7 +285,9 @@ if _bbs > 0
             fvg_hit_bear := true
             break
 
-bool fvg_hit = fvg_hit_bull or fvg_hit_bear
+bool fvg_hit     = fvg_hit_bull or fvg_hit_bear
+bool fvg_aligned = direction == "buy"  ? fvg_hit_bull :
+     direction == "sell" ? fvg_hit_bear : false
 
 // ─── Zone（5M） ───────────────────────────────────────────────────────────────
 var int   dem_cand_bar  = na
@@ -371,7 +373,9 @@ if _ss > 0
             zone_hit_sup := true
             break
 
-bool zone_hit = zone_hit_dem or zone_hit_sup
+bool zone_hit     = zone_hit_dem or zone_hit_sup
+bool zone_aligned = direction == "buy"  ? zone_hit_dem :
+     direction == "sell" ? zone_hit_sup : false
 
 // ─── セッション判定（UTC基準） ─────────────────────────────────────────────────
 int h_utc = hour(time, "UTC")
@@ -427,7 +431,9 @@ plot(h1_adx,                    title="h1_adx",       display=display.all)
 plot(m15_adx,                   title="m15_adx",      display=display.all)
 plot(choch_confirmed ? 1 : 0,   title="choch",        display=display.all)
 plot(fvg_hit         ? 1 : 0,   title="fvg",          display=display.all)
+plot(fvg_aligned     ? 1 : 0,   title="fvg_aligned",  display=display.all)
 plot(zone_hit        ? 1 : 0,   title="zone",         display=display.all)
+plot(zone_aligned    ? 1 : 0,   title="zone_aligned", display=display.all)
 plot(bos_confirmed   ? 1 : 0,   title="bos",          display=display.all)
 plot(ob_aligned      ? 1 : 0,   title="ob",           display=display.all)
 plot(sweep_detected  ? 1 : 0,   title="sweep",        display=display.all)
