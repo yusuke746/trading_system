@@ -16,7 +16,7 @@ zone_max_age      = input.int(200,   "Zone最大有効バー数",       minval=5
 rsi_period        = input.int(14,    "RSI期間",                 minval=5,  maxval=30)
 sweep_atr_mult    = input.float(0.2, "スイープ貫通量(ATR倍率)", minval=0.1, maxval=1.0, step=0.1)
 cooldown_bars     = input.int(1,     "アラートクールダウン（バー数）", minval=1, maxval=10)
-bos_timeout_bars  = input.int(20,    "BOS Timeout Bars（5M換算100分）",
+bos_timeout_bars  = input.int(12,    "BOS Timeout Bars（5M換算60分）",
                                minval=5, maxval=50,
                                tooltip="BOSからこの本数以内にプルバックがなければキャンセル")
 show_debug        = input.bool(true, "デバッグテーブル表示")
