@@ -165,6 +165,27 @@ class TestBuildOrderParams(unittest.TestCase):
             expected_tp_dollar, places=2,
         )
 
+    def test_trend_tp_uses_atr_tp_multiplier_explicit(self):
+        """TRENDレジームを明示的に指定した場合もTP距離 = ATR × atr_tp_multiplier(6.0)"""
+        import executor
+        atr     = 10.0
+        tp_mult = SYSTEM_CONFIG["atr_tp_multiplier"]   # 6.0
+        trigger = {"direction": "buy", "price": 5200.0,
+                   "symbol": "XAUUSD", "regime": "TREND"}
+        ai_result = _make_ai_result()
+        with patch("executor._get_atr15m", return_value=atr), \
+             patch("executor.param_optimizer.get_live_params",
+                   return_value=_live_params_default()), \
+             patch("executor.get_current_session",
+                   return_value={"session": "London"}):
+            params = executor.build_order_params(trigger, ai_result)
+        self.assertIsNotNone(params)
+        expected_tp_dollar = round(atr * tp_mult, 3)
+        self.assertAlmostEqual(
+            params["tp_price"] - params["entry_price"],
+            expected_tp_dollar, places=2,
+        )
+
     def test_breakout_tp_uses_breakout_multiplier(self):
         """BREAKOUTレジーム時はTP距離 = ATR × breakout_tp_multiplier(3.5)"""
         import executor
