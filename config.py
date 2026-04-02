@@ -27,6 +27,9 @@ SYSTEM_CONFIG = {
     # True の間は日次損失制限・連続損失制限を無効化（データ収集目的）
     # 最大ポジション数・合計リスク上限・ギャップチェックは引き続き有効
     "demo_mode": True,
+    # False の間は param_optimizer の動的調整をスキップし config 値をそのまま使用
+    # データ不足・デモ段階では動的最適化が逆効果になるため無効化
+    "use_param_optimizer": False,
 
     # 追加リスク管理（risk_manager.py）
     # 1日の確定損失上限: 口座残高に対するパーセンテージ（負値）
