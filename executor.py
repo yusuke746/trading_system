@@ -203,8 +203,14 @@ def build_order_params(trigger: dict, ai_result: dict,
                 )
             price = fresh_price
 
-    # 動的パラメータ取得（市場環境・成績に基づくATR乗数調整）
-    live_params = param_optimizer.get_live_params()
+    # 動的パラメータ取得（use_param_optimizer=False の間は config 値を直接使用）
+    if SYSTEM_CONFIG.get("use_param_optimizer", False):
+        live_params = param_optimizer.get_live_params()
+    else:
+        live_params = {
+            "atr_sl_multiplier": SYSTEM_CONFIG["atr_sl_multiplier"],
+            "atr_tp_multiplier": SYSTEM_CONFIG["atr_tp_multiplier"],
+        }
     dyn_sl_mult = live_params.get("atr_sl_multiplier", ATR_SL_MULT)
 
     # BREAKOUT レジームは短いTPを使用（ブレイクアウト後の工定は5M足では短いのでATR×3.5〒最適）

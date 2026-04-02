@@ -121,14 +121,12 @@ class TestBuildOrderParams(unittest.TestCase):
     def test_sl_clamped_to_min(self):
         """ATR × SL_MULT < min_sl_pips のとき SL は min_sl_pips にクランプされる"""
         # atr=3.5, sl_mult=2.0 → 3.5 * 2.0 = 7.0 < min_sl_pips(8.0) でクランプ発動
-        # ※ config の atr_sl_multiplier(2.7)では 3.5*2.7=9.45 でクランプしないため
-        #   このテスト専用に sl_mult=2.0 をモック
+        # use_param_optimizer=False のため SYSTEM_CONFIG を直接パッチして sl_mult を制御する
         atr = 3.5
-        live_params = {**_live_params_default(), "atr_sl_multiplier": 2.0}
         trigger   = _make_trigger("buy", 5200.0)
         ai_result = _make_ai_result()
         with patch("executor._get_atr15m", return_value=atr), \
-             patch("executor.param_optimizer.get_live_params", return_value=live_params), \
+             patch.dict("executor.SYSTEM_CONFIG", {"atr_sl_multiplier": 2.0}), \
              patch("executor.get_current_session", return_value={"session": "London"}):
             import executor
             params = executor.build_order_params(trigger, ai_result)
