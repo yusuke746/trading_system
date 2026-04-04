@@ -1,4 +1,4 @@
-# AI Trading System v4.6
+# AI Trading System v4.7
 
 **対象:** XAUUSD / GOLD#（XMTrading）　**時間軸:** 5M足　**手法:** SMC（Smart Money Concepts）+ マルチレジーム　**状態:** デモ稼働中
 
@@ -580,6 +580,10 @@ py python/csv_analyzer.py data/export.csv
 | 🟢 低 | タスクスケジューラ自動起動 | VPS再起動後の自動起動。`start_trading.bat` は作成済みだが登録確認が必要 |
 | ✅ 解決済み | FVG/Zone再タッチ問題 | v4.6にて `bull_fvg_used[]`/`bear_fvg_used[]`/`dem_used[]`/`sup_used[]` で制御済み |
 | ✅ 解決済み | sweep_direction逆転バグ（llm_structurer.py） | v4.6修正済み |
+| ✅ 解決済み | param_optimizer によるTP動的上書きバグ | v4.7にて `use_param_optimizer: False` で無効化。TREND TP×6.0 が正常動作するようになった |
+| 🟡 中 | scoring_history に SMC フラグ未保存 | `fvg_aligned`/`zone_aligned`/`bos_confirmed` 等がDBに記録されず事後検証が困難。要対応 |
+| 🟡 中 | Discord通知に SMC フラグ未記載 | アラート発火の原因（FVG/Zone/BOSのいずれか）がDiscordで確認できない |
+| 🟡 中 | 使用済みFVGの描画区別なし | used=trueになったFVGボックスが未使用のものと同じ色で表示される。視認性が低い |
 
 ---
 
@@ -648,7 +652,7 @@ py -m pytest tests/ -v
 
 | ファイル | テスト数 | 対象 |
 |---|---|---|
-| `test_scoring_engine.py` | **29件** | Gate1〜3判定・スコア計算・閾値判定・ペナルティ関数 |
+| `test_scoring_engine.py` | **32件** | Gate1〜3判定・スコア計算・閾値判定・ペナルティ関数 |
 | `test_risk_manager.py` | 複数件 | 日次損失制限・連続損失・ギャップフィルター |
 | `test_executor.py` | 複数件 | MT5発注・Discordエラーハンドリング |
 | `test_ai_judge_v3.py` | 複数件 | 判定パイプライン全体 |
@@ -660,7 +664,9 @@ py -m pytest tests/ -v
 | `test_meta_optimizer.py` | 複数件 | メタ最適化 |
 | `test_news_filter.py` | 複数件 | ニュースフィルター・ブラックアウト判定 |
 
-**現在の状態:** `test_scoring_engine.py` 全29件 PASSED（2026-03-22確認済み）
+**現在の状態:** `test_scoring_engine.py` 全32件 PASSED（2026-03-22確認済み）
+
+**現在の状態:** 226件全テスト PASSED（2026-04-04確認済み）
 
 ---
 
@@ -668,6 +674,7 @@ py -m pytest tests/ -v
 
 | バージョン | 日付 | 主な変更点 |
 |---|---|---|
+| **v4.7** | 2026-04-04 | param_optimizer無効化（`use_param_optimizer: False`追加）・TREND発注がTP×3.5に固定されていたバグを修正（param_optimizerが動的にatr_tp_multを上書きしていた）・TradingViewのPine Scriptを最新版（bos_timeout=12本・FVG/Zone再タッチ制御）に更新・test_data_structurer/test_llm_structurer/test_news_filterの既存バグ3件修正・全226件テストpass |
 | **v4.6** | 2026-03-28 | FVG/Zone再タッチ制御実装（`bull_fvg_used[]`/`bear_fvg_used[]`/`dem_used[]`/`sup_used[]`）・`bos_timeout` 20→12本・csv_exporterフィールド追加（ob_atr_ratio/bos_age_bars/fvg_size_atr/bos_alert_seq/fvg_aligned/zone_aligned）・セッションスコア再調整（London -0.25/London_NY -0.15/NY +0.10）・BREAKOUT TP×6.0→×3.5（breakout_tp_multiplier新設）・sweep_direction逆転バグ修正・90日CSVデータドリブン検証実施 |
 | **v4.5** | 2026-03-27 | BREAKOUTレジーム判定をデータドリブン2段階方式に改修（101日21280バーのCSV分析に基づく）・未使用input（`atr_breakout_mult`・`adx_range_max`）を両pineファイルから削除・README全面更新 |
 | **v4.4** | 2026-03-22 | CSVデータ分析基盤構築（csv_exporter.pine・csv_analyzer.py）・BOS/OBバグ修正・スコアリング全面再設計（セッション逆転修正・fvg_only_penalty・zone_only_penalty・bos_and_sweep追加）・approve_threshold 0.15→0.50・demo_mode実装 |
