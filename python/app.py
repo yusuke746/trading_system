@@ -163,6 +163,12 @@ def _process_alert_async(alert: dict, result: dict, decision: str) -> None:
 
             # Discord通知: エントリー承認
             try:
+                _smc_bos   = int(bool(alert.get("bos_confirmed",   False)))
+                _smc_fvg   = int(bool(alert.get("fvg_aligned",     False)))
+                _smc_zone  = int(bool(alert.get("zone_aligned",    False)))
+                _smc_ob    = int(bool(alert.get("ob_aligned",      False)))
+                _smc_choch = int(bool(alert.get("choch_confirmed", False)))
+                _smc_sweep = int(bool(alert.get("sweep_detected",  False)))
                 discord_notifier.notify(
                     title="✅ エントリー承認 → 発注中...",
                     description=(
@@ -173,6 +179,7 @@ def _process_alert_async(alert: dict, result: dict, decision: str) -> None:
                     fields={
                         "スコア":     f"{result['score']:.3f}",
                         "主要フラグ": ", ".join(top_flags[:5]) or "—",
+                        "SMCフラグ":  f"BOS:{_smc_bos} FVG:{_smc_fvg} Zone:{_smc_zone} OB:{_smc_ob} CHoCH:{_smc_choch} Sweep:{_smc_sweep}",
                     },
                 )
             except Exception:

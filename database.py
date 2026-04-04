@@ -233,8 +233,28 @@ def init_db() -> None:
             decision         TEXT,
             breakdown_json   TEXT,
             outcome          TEXT DEFAULT NULL,
-            pnl_usd          REAL DEFAULT NULL
+            pnl_usd          REAL DEFAULT NULL,
+            fvg_aligned      INTEGER DEFAULT 0,
+            zone_aligned     INTEGER DEFAULT 0,
+            bos_confirmed    INTEGER DEFAULT 0,
+            ob_aligned       INTEGER DEFAULT 0,
+            choch_confirmed  INTEGER DEFAULT 0,
+            sweep_detected   INTEGER DEFAULT 0
         )""")
+
+        # scoring_history SMCフラグカラムのマイグレーション（既存DB用）
+        for col, typedef in [
+            ("fvg_aligned",     "INTEGER DEFAULT 0"),
+            ("zone_aligned",    "INTEGER DEFAULT 0"),
+            ("bos_confirmed",   "INTEGER DEFAULT 0"),
+            ("ob_aligned",      "INTEGER DEFAULT 0"),
+            ("choch_confirmed", "INTEGER DEFAULT 0"),
+            ("sweep_detected",  "INTEGER DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE scoring_history ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass  # 既に存在する場合はスキップ
 
         # ── インデックス（クエリ高速化・保守用）────────────
         indexes = [

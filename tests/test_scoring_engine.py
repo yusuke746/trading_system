@@ -578,6 +578,113 @@ class TestGate1BreakoutExemption(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────
+# SMCフラグ保存テスト（v4.7）
+# ──────────────────────────────────────────────────────────
+
+class TestSMCFlagsPersisted(unittest.TestCase):
+    """log_scoring_history が SMCフラグを scoring_history に正しく保存する"""
+
+    def setUp(self):
+        import sqlite3
+        import tempfile
+        import os
+        # テスト用インメモリDBを作成し、logger_module が使う get_connection をモック
+        self._db_conn = sqlite3.connect(":memory:")
+        self._db_conn.row_factory = sqlite3.Row
+        self._db_conn.execute("""
+            CREATE TABLE scoring_history (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at       TEXT,
+                signal_direction TEXT,
+                regime           TEXT,
+                total_score      REAL,
+                decision         TEXT,
+                breakdown_json   TEXT,
+                fvg_aligned      INTEGER DEFAULT 0,
+                zone_aligned     INTEGER DEFAULT 0,
+                bos_confirmed    INTEGER DEFAULT 0,
+                ob_aligned       INTEGER DEFAULT 0,
+                choch_confirmed  INTEGER DEFAULT 0,
+                sweep_detected   INTEGER DEFAULT 0
+            )
+        """)
+
+    def tearDown(self):
+        self._db_conn.close()
+
+    def test_fvg_aligned_true_saved_as_1(self):
+        """fvg_aligned=True を含むアラートで log_scoring_history を呼ぶと fvg_aligned=1 で保存される"""
+        import logger_module
+
+        alert = _make_alert(
+            fvg_aligned=True,
+            zone_aligned=False,
+            bos_confirmed=False,
+            ob_aligned=False,
+            choch_confirmed=False,
+            sweep_detected=False,
+        )
+        result = calculate_score(alert)
+
+        with patch("logger_module.get_connection", return_value=self._db_conn):
+            logger_module.log_scoring_history(alert, result)
+
+        row = self._db_conn.execute(
+            "SELECT * FROM scoring_history ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["fvg_aligned"],     1)
+        self.assertEqual(row["zone_aligned"],    0)
+        self.assertEqual(row["bos_confirmed"],   0)
+        self.assertEqual(row["ob_aligned"],      0)
+        self.assertEqual(row["choch_confirmed"], 0)
+        self.assertEqual(row["sweep_detected"],  0)
+
+    def test_all_smc_flags_false_saved_as_0(self):
+        """全SMCフラグ=False のとき、全カラムが 0 で保存される"""
+        import logger_module
+
+        alert = _make_alert(
+            fvg_aligned=False, zone_aligned=False, bos_confirmed=False,
+            ob_aligned=False, choch_confirmed=False, sweep_detected=False,
+        )
+        result = calculate_score(alert)
+
+        with patch("logger_module.get_connection", return_value=self._db_conn):
+            logger_module.log_scoring_history(alert, result)
+
+        row = self._db_conn.execute(
+            "SELECT * FROM scoring_history ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        for col in ("fvg_aligned", "zone_aligned", "bos_confirmed",
+                    "ob_aligned", "choch_confirmed", "sweep_detected"):
+            self.assertEqual(row[col], 0, f"{col} should be 0")
+
+    def test_multiple_smc_flags_saved_correctly(self):
+        """複数のSMCフラグが混在するとき、それぞれ正しく保存される"""
+        import logger_module
+
+        alert = _make_alert(
+            fvg_aligned=True, zone_aligned=True, bos_confirmed=True,
+            ob_aligned=False, choch_confirmed=False, sweep_detected=True,
+        )
+        result = calculate_score(alert)
+
+        with patch("logger_module.get_connection", return_value=self._db_conn):
+            logger_module.log_scoring_history(alert, result)
+
+        row = self._db_conn.execute(
+            "SELECT * FROM scoring_history ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        self.assertEqual(row["fvg_aligned"],     1)
+        self.assertEqual(row["zone_aligned"],    1)
+        self.assertEqual(row["bos_confirmed"],   1)
+        self.assertEqual(row["ob_aligned"],      0)
+        self.assertEqual(row["choch_confirmed"], 0)
+        self.assertEqual(row["sweep_detected"],  1)
+
+
+# ──────────────────────────────────────────────────────────
 # エントリーポイント
 # ──────────────────────────────────────────────────────────
 
