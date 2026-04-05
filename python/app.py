@@ -152,7 +152,15 @@ def _process_alert_async(alert: dict, result: dict, decision: str) -> None:
                 fields={
                     "regime":    alert.get("regime", "—"),
                     "direction": alert.get("direction", "—"),
+                    "session":   alert.get("session", "—"),
                     "price":     alert.get("price", "—"),
+                    "SMC": (
+                        ("✅FVG "  if alert.get("fvg_aligned")    else "—FVG ") +
+                        ("✅Zone " if alert.get("zone_aligned")   else "—Zone ") +
+                        ("✅BOS "  if alert.get("bos_confirmed")  else "—BOS ") +
+                        ("✅OB "   if alert.get("ob_aligned")     else "—OB ") +
+                        ("✅CH"    if alert.get("choch_confirmed") else "—CH")
+                    ),
                 },
             )
         except Exception:

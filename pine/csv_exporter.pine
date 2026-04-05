@@ -497,6 +497,40 @@ csv_direction = direction == "buy" ? 1 : direction == "sell" ? -1 : 0
 csv_h1dir     = h1_direction == "bull" ? 1 : h1_direction == "bear" ? -1 : 0
 csv_session   = session == "london_ny" ? 5 : session == "london" ? 4 : session == "ny" ? 3 : session == "tokyo" ? 2 : 1
 
+// ─── H4・H1 データ取得（急反転分析用）
+h4_close = request.security(syminfo.tickerid, "240", close,             barmerge.gaps_off, barmerge.lookahead_off)
+h4_ema50 = request.security(syminfo.tickerid, "240", ta.ema(close, 50), barmerge.gaps_off, barmerge.lookahead_off)
+h4_adx   = request.security(syminfo.tickerid, "240", ta.rma(math.max(math.max(high - low, math.abs(high - close[1])), math.abs(low - close[1])), 14), barmerge.gaps_off, barmerge.lookahead_off)
+
+// h1_close は既に line 43 で [h1_close, h1_high, h1_low] として定義済みのためスキップ
+h1_ema50      = request.security(syminfo.tickerid, "60", ta.ema(close, 50), barmerge.gaps_off, barmerge.lookahead_off)
+h1_swing_high = request.security(syminfo.tickerid, "60", ta.pivothigh(high, 5, 5), barmerge.gaps_off, barmerge.lookahead_off)
+h1_swing_low  = request.security(syminfo.tickerid, "60", ta.pivotlow(low,   5, 5), barmerge.gaps_off, barmerge.lookahead_off)
+
+// ─── 派生変数計算
+csv_h4_direction   = h4_close > h4_ema50 ? 1 : h4_close < h4_ema50 ? -1 : 0
+csv_momentum_ratio = atr5 > 0 ? (close - close[3]) / atr5 : 0.0
+
+_candle_range  = high - low + 0.0001
+csv_body_ratio = math.abs(close - open) / _candle_range
+csv_upper_wick = (high - math.max(open, close)) / _candle_range
+csv_lower_wick = (math.min(open, close) - low)  / _candle_range
+
+var float last_h1_swing_high = na
+var float last_h1_swing_low  = na
+if not na(h1_swing_high)
+    last_h1_swing_high := h1_swing_high
+if not na(h1_swing_low)
+    last_h1_swing_low  := h1_swing_low
+
+csv_h1_choch = 0
+if not na(last_h1_swing_high) and h1_close > last_h1_swing_high and h1_close[1] <= last_h1_swing_high
+    csv_h1_choch := 1
+else if not na(last_h1_swing_low) and h1_close < last_h1_swing_low and h1_close[1] >= last_h1_swing_low
+    csv_h1_choch := -1
+
+csv_h1_ema_dist = atr5 > 0 ? (h1_close - h1_ema50) / atr5 : 0.0
+
 // ─── plot ─────────────────────────────────────────────────────────────────────
 plot(csv_regime,                title="regime",       display=display.all)
 plot(csv_direction,             title="direction",    display=display.all)
@@ -562,3 +596,13 @@ plot(adx_avg_24,       title="adx_avg_24",       display=display.all)
 plot(adx_avg_48,       title="adx_avg_48",       display=display.all)
 plot(break_ratio_24,   title="break_ratio_24",   display=display.all)
 plot(break_ratio_48,   title="break_ratio_48",   display=display.all)
+
+// ─── 急反転分析用（Phase 1データ収集）
+plot(csv_h4_direction,   title="h4_direction",      display=display.none)
+plot(h4_adx,             title="h4_adx",            display=display.none)
+plot(csv_momentum_ratio, title="momentum_ratio",    display=display.none)
+plot(csv_body_ratio,     title="candle_body_ratio", display=display.none)
+plot(csv_upper_wick,     title="upper_wick_ratio",  display=display.none)
+plot(csv_lower_wick,     title="lower_wick_ratio",  display=display.none)
+plot(csv_h1_choch,       title="h1_choch",          display=display.none)
+plot(csv_h1_ema_dist,    title="h1_ema_distance",   display=display.none)
