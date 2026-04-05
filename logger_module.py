@@ -176,30 +176,25 @@ def update_wait_history(wait_id: int, reeval_count: int,
 def log_scoring_history(alert: dict, result: dict) -> None:
     import json
     conn = get_connection()
-    fvg_aligned     = int(bool(alert.get("fvg_aligned",     False)))
-    zone_aligned    = int(bool(alert.get("zone_aligned",    False)))
-    bos_confirmed   = int(bool(alert.get("bos_confirmed",   False)))
-    ob_aligned      = int(bool(alert.get("ob_aligned",      False)))
-    choch_confirmed = int(bool(alert.get("choch_confirmed", False)))
-    sweep_detected  = int(bool(alert.get("sweep_detected",  False)))
     conn.execute("""
         INSERT INTO scoring_history
-        (created_at, signal_direction, regime, total_score, decision, breakdown_json,
-         fvg_aligned, zone_aligned, bos_confirmed, ob_aligned, choch_confirmed, sweep_detected)
+        (created_at, signal_direction, regime, session,
+         total_score, decision, breakdown_json,
+         fvg_aligned, zone_aligned, bos_confirmed, ob_aligned, choch_confirmed)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         now_utc(),
         alert.get("direction"),
         alert.get("regime"),
+        alert.get("session"),
         result.get("score"),
         result.get("decision"),
         json.dumps(result.get("score_breakdown", {})),
-        fvg_aligned,
-        zone_aligned,
-        bos_confirmed,
-        ob_aligned,
-        choch_confirmed,
-        sweep_detected,
+        1 if alert.get("fvg_aligned")     else 0,
+        1 if alert.get("zone_aligned")    else 0,
+        1 if alert.get("bos_confirmed")   else 0,
+        1 if alert.get("ob_aligned")      else 0,
+        1 if alert.get("choch_confirmed") else 0,
     ))
     conn.commit()
 

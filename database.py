@@ -229,32 +229,33 @@ def init_db() -> None:
             created_at       TEXT DEFAULT (datetime('now')),
             signal_direction TEXT,
             regime           TEXT,
+            session          TEXT,
             total_score      REAL,
             decision         TEXT,
             breakdown_json   TEXT,
-            outcome          TEXT DEFAULT NULL,
-            pnl_usd          REAL DEFAULT NULL,
             fvg_aligned      INTEGER DEFAULT 0,
             zone_aligned     INTEGER DEFAULT 0,
             bos_confirmed    INTEGER DEFAULT 0,
             ob_aligned       INTEGER DEFAULT 0,
             choch_confirmed  INTEGER DEFAULT 0,
-            sweep_detected   INTEGER DEFAULT 0
+            outcome          TEXT DEFAULT NULL,
+            pnl_usd          REAL DEFAULT NULL
         )""")
 
-        # scoring_history SMCフラグカラムのマイグレーション（既存DB用）
-        for col, typedef in [
-            ("fvg_aligned",     "INTEGER DEFAULT 0"),
-            ("zone_aligned",    "INTEGER DEFAULT 0"),
-            ("bos_confirmed",   "INTEGER DEFAULT 0"),
-            ("ob_aligned",      "INTEGER DEFAULT 0"),
-            ("choch_confirmed", "INTEGER DEFAULT 0"),
-            ("sweep_detected",  "INTEGER DEFAULT 0"),
-        ]:
+        # scoring_history カラムのマイグレーション（既存DB用）
+        alter_scoring_history_cols = [
+            "ALTER TABLE scoring_history ADD COLUMN session TEXT DEFAULT NULL",
+            "ALTER TABLE scoring_history ADD COLUMN fvg_aligned INTEGER DEFAULT 0",
+            "ALTER TABLE scoring_history ADD COLUMN zone_aligned INTEGER DEFAULT 0",
+            "ALTER TABLE scoring_history ADD COLUMN bos_confirmed INTEGER DEFAULT 0",
+            "ALTER TABLE scoring_history ADD COLUMN ob_aligned INTEGER DEFAULT 0",
+            "ALTER TABLE scoring_history ADD COLUMN choch_confirmed INTEGER DEFAULT 0",
+        ]
+        for sql in alter_scoring_history_cols:
             try:
-                conn.execute(f"ALTER TABLE scoring_history ADD COLUMN {col} {typedef}")
+                c.execute(sql)
             except Exception:
-                pass  # 既に存在する場合はスキップ
+                pass
 
         # ── インデックス（クエリ高速化・保守用）────────────
         indexes = [

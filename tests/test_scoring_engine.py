@@ -597,6 +597,7 @@ class TestSMCFlagsPersisted(unittest.TestCase):
                 created_at       TEXT,
                 signal_direction TEXT,
                 regime           TEXT,
+                session          TEXT,
                 total_score      REAL,
                 decision         TEXT,
                 breakdown_json   TEXT,
@@ -605,7 +606,8 @@ class TestSMCFlagsPersisted(unittest.TestCase):
                 bos_confirmed    INTEGER DEFAULT 0,
                 ob_aligned       INTEGER DEFAULT 0,
                 choch_confirmed  INTEGER DEFAULT 0,
-                sweep_detected   INTEGER DEFAULT 0
+                outcome          TEXT DEFAULT NULL,
+                pnl_usd          REAL DEFAULT NULL
             )
         """)
 
@@ -638,7 +640,6 @@ class TestSMCFlagsPersisted(unittest.TestCase):
         self.assertEqual(row["bos_confirmed"],   0)
         self.assertEqual(row["ob_aligned"],      0)
         self.assertEqual(row["choch_confirmed"], 0)
-        self.assertEqual(row["sweep_detected"],  0)
 
     def test_all_smc_flags_false_saved_as_0(self):
         """全SMCフラグ=False のとき、全カラムが 0 で保存される"""
@@ -657,7 +658,7 @@ class TestSMCFlagsPersisted(unittest.TestCase):
             "SELECT * FROM scoring_history ORDER BY id DESC LIMIT 1"
         ).fetchone()
         for col in ("fvg_aligned", "zone_aligned", "bos_confirmed",
-                    "ob_aligned", "choch_confirmed", "sweep_detected"):
+                    "ob_aligned", "choch_confirmed"):
             self.assertEqual(row[col], 0, f"{col} should be 0")
 
     def test_multiple_smc_flags_saved_correctly(self):
@@ -666,7 +667,7 @@ class TestSMCFlagsPersisted(unittest.TestCase):
 
         alert = _make_alert(
             fvg_aligned=True, zone_aligned=True, bos_confirmed=True,
-            ob_aligned=False, choch_confirmed=False, sweep_detected=True,
+            ob_aligned=False, choch_confirmed=False, sweep_detected=False,
         )
         result = calculate_score(alert)
 
@@ -681,7 +682,6 @@ class TestSMCFlagsPersisted(unittest.TestCase):
         self.assertEqual(row["bos_confirmed"],   1)
         self.assertEqual(row["ob_aligned"],      0)
         self.assertEqual(row["choch_confirmed"], 0)
-        self.assertEqual(row["sweep_detected"],  1)
 
 
 # ──────────────────────────────────────────────────────────
