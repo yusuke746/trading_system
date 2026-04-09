@@ -34,7 +34,7 @@ RETENTION = {
     # (テーブル名, 日時カラム名, 保持日数, 削除 or NULL化対象カラム(Noneなら行削除))
     "delete_system_events":    ("system_events",    "created_at", 90,  None),
     "delete_signals":          ("signals",          "received_at", 180, None),
-    "delete_scoring_history":  ("scoring_history",  "created_at", 90,  None),
+    "delete_scoring_history":  ("scoring_history",  "created_at", 365, None),
     "delete_wait_history":     ("wait_history",     "created_at", 180, None),
     "null_prompt_json":        ("ai_decisions",     "created_at", 90,  ["prompt_json"]),
     "null_context_json":       ("ai_decisions",     "created_at", 180, ["context_json"]),
