@@ -204,61 +204,32 @@ class LossAnalyzer:
     def _update_scoring_history(self, ticket: int, outcome: str, pnl_usd: float):
         """
         v3.0: scoring_history テーブルに結果をフィードバックする。
-        ai_decisions から score_breakdown を取得し、scoring_history の
-        対応レコードに outcome と pnl_usd を記録する。
+        executions.ai_decision_id（= scoring_history の id）を使って
+        直接 scoring_history の outcome と pnl_usd を更新する。
         """
         try:
             conn = get_connection()
 
-            # executions → ai_decisions を結合して score_breakdown を取得
-            row = conn.execute("""
-                SELECT ad.id as ai_id, ad.score_breakdown, ad.decision,
-                       ad.ev_score, ad.market_regime, e.direction
-                FROM executions e
-                JOIN ai_decisions ad ON ad.id = e.ai_decision_id
-                WHERE e.mt5_ticket = ?
-                LIMIT 1
-            """, (ticket,)).fetchone()
+            # mt5_ticket から executions.ai_decision_id を取得
+            row = conn.execute(
+                "SELECT ai_decision_id FROM executions WHERE mt5_ticket = ?",
+                (ticket,)
+            ).fetchone()
 
-            if not row:
+            if not row or row["ai_decision_id"] is None:
                 return
 
-            # scoring_history に既にレコードがある場合は更新
-            existing = conn.execute("""
-                SELECT id FROM scoring_history
-                WHERE created_at >= datetime('now', '-1 day')
-                  AND signal_direction = ?
-                  AND decision = ?
-                ORDER BY id DESC LIMIT 1
-            """, (row["direction"], row["decision"])).fetchone()
-
-            if existing:
-                conn.execute("""
-                    UPDATE scoring_history
-                    SET outcome = ?, pnl_usd = ?
-                    WHERE id = ?
-                """, (outcome, pnl_usd, existing["id"]))
-            else:
-                # 新規レコードとして挿入
-                conn.execute("""
-                    INSERT INTO scoring_history
-                    (signal_direction, regime, total_score, decision,
-                     breakdown_json, outcome, pnl_usd)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    row["direction"],
-                    row["market_regime"],
-                    row["ev_score"],
-                    row["decision"],
-                    row["score_breakdown"],
-                    outcome,
-                    pnl_usd,
-                ))
-            conn.commit()
+            from logger_module import update_scoring_history_outcome
+            score_outcome = (
+                "win"       if pnl_usd > 0 else
+                "loss"      if pnl_usd < 0 else
+                "breakeven"
+            )
+            update_scoring_history_outcome(row["ai_decision_id"], score_outcome, pnl_usd)
 
             logger.debug(
                 "📝 scoring_history フィードバック: ticket=%d outcome=%s pnl=%.2f",
-                ticket, outcome, pnl_usd
+                ticket, score_outcome, pnl_usd
             )
         except Exception as e:
             logger.error("scoring_history フィードバック失敗: %s", e)
