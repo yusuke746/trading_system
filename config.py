@@ -226,6 +226,21 @@ SCORING_CONFIG = {
 
     # --- ニュースフィルター ---
     "news_nearby":           -0.30,   # 高インパクトニュース 30 分前後
+
+    # ── BREAKOUTレジーム専用スコア ─────────────────────────────
+    "breakout_base":              0.30,
+    "breakout_fvg_retest":        0.15,
+    "breakout_zone_retest":       0.10,
+    "breakout_h1_aligned":        0.10,
+    "breakout_atr_surge":         0.10,   # ATR ratio >= 1.5（ボラ急拡大）
+    "breakout_atr_low":          -0.10,   # ATR ratio < 0.8（ボラ不足）
+
+    # BREAKOUTセッション（TRENDより独立して設定）
+    "breakout_session_london_ny": 0.10,
+    "breakout_session_london":   -0.40,   # PF=0.37（90件）→ 強ペナルティ
+    "breakout_session_ny":        0.05,
+    "breakout_session_tokyo":     0.15,   # PF=1.78（108件）→ 最良
+    "breakout_session_off":       0.10,   # PF=1.48（66件）→ 良好
 }
 
 # ── 高インパクト経済指標スケジュール（UTC）──────────────────

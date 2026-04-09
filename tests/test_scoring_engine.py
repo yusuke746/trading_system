@@ -274,10 +274,10 @@ class TestBreakoutApprove(unittest.TestCase):
     def test_breakout_approve_fvg_zone_overlap(self):
         """
         BREAKOUT: choch_confirmed=False でもゲート通過。
-        fvg_aligned + zone_aligned → fvg_and_zone_overlap ボーナス。
-        score = fvg_and_zone_overlap(0.30) + bos_confirmed(0.30)
-                + h1_direction_aligned(0.10) + session_london_ny(-0.15)
-                + atr_ratio_normal(0.05) + adx_normal(0.10) = 0.70 >= approve_threshold(0.50)
+        v4.1 分離後: BREAKOUT専用スコアテーブルを使用。
+        score = breakout_base(0.30) + breakout_fvg_retest(0.15)
+                + breakout_zone_retest(0.10) + breakout_h1_aligned(0.10)
+                + breakout_session_london_ny(0.10) = 0.75 >= approve_threshold(0.50)
         """
         alert = _make_alert(
             regime="BREAKOUT",
@@ -287,15 +287,19 @@ class TestBreakoutApprove(unittest.TestCase):
             m15_adx=30.0,
             choch_confirmed=False,  # BREAKOUT はCHoCH不要
             fvg_aligned=True,
-            zone_aligned=True,      # overlap: +0.15
-            bos_confirmed=True,     # +0.30 で閾値0.50超え
+            zone_aligned=True,
+            bos_confirmed=True,
             session="london_ny",
         )
         result = calculate_score(alert)
 
         self.assertEqual(result["decision"], "approve")
-        self.assertIn("fvg_and_zone_overlap", result["score_breakdown"])
-        self.assertGreater(result["score_breakdown"]["fvg_and_zone_overlap"], 0)
+        # BREAKOUT専用キーが使われていること
+        self.assertIn("breakout_base",        result["score_breakdown"])
+        self.assertIn("breakout_fvg_retest",  result["score_breakdown"])
+        self.assertIn("breakout_zone_retest", result["score_breakdown"])
+        self.assertGreater(result["score_breakdown"]["breakout_fvg_retest"], 0)
+        self.assertGreater(result["score_breakdown"]["breakout_zone_retest"], 0)
         # choch_strong は choch_confirmed=False なので付かない
         self.assertNotIn("choch_strong", result["score_breakdown"])
 
@@ -306,20 +310,29 @@ class TestBreakoutApprove(unittest.TestCase):
 
 class TestBreakoutRejectNoZone(unittest.TestCase):
 
-    def test_breakout_reject_no_fvg_no_zone(self):
-        """BREAKOUT: fvg_aligned=false AND zone_aligned=false → Gate3(BREAKOUT) 不通過"""
+    def test_breakout_london_session_score_reject(self):
+        """
+        BREAKOUT: Gate3(BREAKOUT)撤廃後。
+        fvg/zone なし + session=london(-0.40ペナルティ) + h1逆方向で
+        score = breakout_base(0.30) + breakout_session_london(-0.40) = -0.10
+        → reject（wait_threshold=0.00 未達）
+        """
         alert = _make_alert(
             regime="BREAKOUT",
             h1_adx=30.0,
             fvg_aligned=False,
             zone_aligned=False,
+            h1_direction="bear",   # h1方向不一致 → breakout_h1_aligned 加点なし
+            direction="buy",
+            session="london",
         )
         result = calculate_score(alert)
 
+        # Gate3 は発動しない（ゲートリジェクトではなくスコアリジェクト）
+        self.assertFalse(any("Gate3" in r for r in result["reject_reasons"]))
+        # スコアが負 → reject
         self.assertEqual(result["decision"], "reject")
-        self.assertTrue(
-            any("fvg_aligned" in r for r in result["reject_reasons"])
-        )
+        self.assertIn("breakout_session_london", result["score_breakdown"])
 
 
 # ──────────────────────────────────────────────────────────
@@ -682,6 +695,138 @@ class TestSMCFlagsPersisted(unittest.TestCase):
         self.assertEqual(row["bos_confirmed"],   1)
         self.assertEqual(row["ob_aligned"],      0)
         self.assertEqual(row["choch_confirmed"], 0)
+
+
+# ──────────────────────────────────────────────────────────
+# BREAKOUTスコアリング分離テスト（v4.1）
+# ──────────────────────────────────────────────────────────
+
+class TestBreakoutScoringDetailed(unittest.TestCase):
+    """
+    v4.1: TREND/BREAKOUT スコアリング完全分離後の BREAKOUT 専用テスト。
+    """
+
+    def test_breakout_tokyo_h1_aligned_approve(self):
+        """
+        BREAKOUT + session=tokyo + h1_direction一致 → approve。
+        score = breakout_base(0.30) + breakout_session_tokyo(0.15)
+                + breakout_h1_aligned(0.10) = 0.55 >= approve_threshold(0.50)
+        """
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bull",   # h1一致 → breakout_h1_aligned
+            h1_adx=20.0,           # Gate1 は BREAKOUT 免除
+            fvg_aligned=False,
+            zone_aligned=False,
+            session="tokyo",
+            atr_ratio=1.2,         # surge/low なし
+        )
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "approve")
+        self.assertIn("breakout_base",        result["score_breakdown"])
+        self.assertIn("breakout_session_tokyo", result["score_breakdown"])
+        self.assertIn("breakout_h1_aligned",  result["score_breakdown"])
+        self.assertGreaterEqual(result["score"], 0.50)
+
+    def test_breakout_london_reject(self):
+        """
+        BREAKOUT + session=london → reject。
+        score = breakout_base(0.30) + breakout_session_london(-0.40) = -0.10
+        → reject（wait_threshold=0.00 未達）
+        """
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bear",   # h1方向不一致 → breakout_h1_aligned 加点なし
+            h1_adx=30.0,
+            fvg_aligned=False,
+            zone_aligned=False,
+            session="london",
+            atr_ratio=1.2,
+        )
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertIn("breakout_session_london", result["score_breakdown"])
+        self.assertLess(result["score_breakdown"]["breakout_session_london"], 0)
+        self.assertAlmostEqual(result["score"], -0.10, places=4)
+
+    def test_breakout_london_ny_fvg_h1_approve(self):
+        """
+        BREAKOUT + session=london_ny + fvg_aligned=True + h1一致 → approve。
+        score = breakout_base(0.30) + breakout_session_london_ny(0.10)
+                + breakout_fvg_retest(0.15) + breakout_h1_aligned(0.10) = 0.65
+        """
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bull",   # h1一致
+            h1_adx=30.0,
+            fvg_aligned=True,
+            zone_aligned=False,
+            session="london_ny",
+            atr_ratio=1.2,
+        )
+        result = calculate_score(alert)
+
+        self.assertEqual(result["decision"], "approve")
+        self.assertIn("breakout_fvg_retest",        result["score_breakdown"])
+        self.assertIn("breakout_h1_aligned",         result["score_breakdown"])
+        self.assertIn("breakout_session_london_ny",  result["score_breakdown"])
+        self.assertAlmostEqual(result["score"], 0.65, places=4)
+
+    def test_breakout_ny_atr_surge_not_approve(self):
+        """
+        BREAKOUT + session=ny + atr_ratio=2.0（surge）+ h1逆方向 → approve_threshold未達。
+        score = breakout_base(0.30) + breakout_session_ny(0.05)
+                + breakout_atr_surge(0.10) = 0.45 < approve_threshold(0.50)
+        """
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bear",   # h1方向不一致 → breakout_h1_aligned 加点なし
+            h1_adx=30.0,
+            fvg_aligned=False,
+            zone_aligned=False,
+            session="ny",
+            atr_ratio=2.0,         # surge: >= 1.5
+        )
+        result = calculate_score(alert)
+
+        self.assertNotEqual(result["decision"], "approve")
+        self.assertIn("breakout_atr_surge", result["score_breakdown"])
+        self.assertIn("breakout_session_ny", result["score_breakdown"])
+        self.assertAlmostEqual(result["score"], 0.45, places=4)
+
+    def test_trend_scoring_unchanged_bos_tokyo(self):
+        """
+        TREND + bos=True + session=tokyo → 既存スコアリングが変わっていないこと確認。
+        BREAKOUT分離後も TREND は _score_trend() が呼ばれる。
+        breakdown に bos_confirmed / session_tokyo が含まれること。
+        """
+        alert = _make_alert(
+            regime="TREND",
+            direction="buy",
+            h1_direction="bull",
+            h1_adx=30.0,
+            m15_adx=30.0,
+            choch_confirmed=False,
+            fvg_aligned=False,
+            zone_aligned=False,
+            bos_confirmed=True,    # TREND専用: bos_confirmed
+            ob_aligned=False,
+            session="tokyo",
+        )
+        result = calculate_score(alert)
+
+        # TRENDスコアリングが使われていること
+        self.assertIn("bos_confirmed",  result["score_breakdown"])
+        self.assertIn("session_tokyo",  result["score_breakdown"])
+        # BREAKOUT専用キーは含まれないこと
+        self.assertNotIn("breakout_base",      result["score_breakdown"])
+        self.assertNotIn("breakout_h1_aligned", result["score_breakdown"])
 
 
 # ──────────────────────────────────────────────────────────

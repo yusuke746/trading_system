@@ -5,6 +5,10 @@ AI Trading System v4.0（マルチレジーム対応）
 Pine Script アラート JSON を直接受け取り、純粋な数値ルールで
 approve / reject / wait を判定する。LLM は一切関与しない。
 全ての閾値は config.py の SCORING_CONFIG で管理し、バックテストで最適化可能。
+
+v4.1: TREND / BREAKOUT スコアリングを完全分離。
+      _score_trend()    … 既存ロジックをそのまま TREND 専用に移植
+      _score_breakout() … BREAKOUT 専用の新スコアテーブル
 """
 
 import logging
@@ -46,18 +50,14 @@ def calculate_score(alert: dict) -> dict:
             "reject_reasons":  reject_reasons,
         }
 
-    # ── 共通スコアテーブル評価 ────────────────────────────────
-    breakdown: dict[str, float] = {}
-    _apply_choch_score(alert, _cfg, breakdown)
-    _apply_rsi_divergence(alert, _cfg, breakdown)
-    _apply_fvg_zone_overlap(alert, _cfg, breakdown)
-    _apply_fvg_zone_penalty(alert, _cfg, breakdown)
-    _apply_adx_score(alert, _cfg, breakdown)
-    _apply_h1_direction_score(alert, _cfg, breakdown)
-    _apply_session_score(alert, _cfg, breakdown)
-    _apply_atr_ratio_score(alert, _cfg, breakdown)
-    _apply_news_penalty(alert, _cfg, breakdown)
-    _apply_bos_ob_score(alert, _cfg, breakdown)
+    # ── レジーム別スコア計算 ─────────────────────────────────────
+    # RANGE / REVERSAL / direction=none はゲートで弾済みなので
+    # ここに到達するのは TREND か BREAKOUT のみ
+    regime = alert.get("regime", "RANGE")
+    if regime == "BREAKOUT":
+        breakdown = _score_breakout(alert, _cfg)
+    else:
+        breakdown = _score_trend(alert, _cfg)
 
     total_score = round(sum(breakdown.values()), 4)
 
@@ -139,15 +139,86 @@ def _check_gates(alert: dict) -> list[str]:
         if not sweep:
             reasons.append("Gate3(REVERSAL): sweep_detected=false")
 
-    elif regime == "BREAKOUT":
-        # CHoCH 不要（レンジブレイク後のリテスト確認が本質）
-        if not (fvg_al or zone_al):
-            reasons.append("Gate3(BREAKOUT): fvg_aligned=false AND zone_aligned=false")
+    # BREAKOUT: Gate3 条件なし（スコアテーブルで評価する）
 
     return reasons
 
 
-# ── 個別スコア評価関数 ──────────────────────────────────────────
+# ── レジーム別スコア計算 ────────────────────────────────────────
+
+def _score_trend(alert: dict, cfg: dict) -> dict:
+    """
+    TRENDレジーム専用スコア計算。
+    既存の共通スコアリング関数をそのまま流用する。
+    戻り値: breakdown dict
+    """
+    breakdown: dict[str, float] = {}
+    _apply_choch_score(alert, cfg, breakdown)
+    _apply_rsi_divergence(alert, cfg, breakdown)
+    _apply_fvg_zone_overlap(alert, cfg, breakdown)
+    _apply_fvg_zone_penalty(alert, cfg, breakdown)
+    _apply_adx_score(alert, cfg, breakdown)
+    _apply_h1_direction_score(alert, cfg, breakdown)
+    _apply_session_score(alert, cfg, breakdown)
+    _apply_atr_ratio_score(alert, cfg, breakdown)
+    _apply_news_penalty(alert, cfg, breakdown)
+    _apply_bos_ob_score(alert, cfg, breakdown)
+    return breakdown
+
+
+def _score_breakout(alert: dict, cfg: dict) -> dict:
+    """
+    BREAKOUTレジーム専用スコア計算。
+    TREND とは独立したスコアテーブルを使用する。
+    戻り値: breakdown dict
+    """
+    breakdown: dict[str, float] = {}
+
+    # ベーススコア（ブレイク確認済み）
+    breakdown["breakout_base"] = cfg.get("breakout_base", 0.30)
+
+    # FVGリテスト確認ボーナス
+    if bool(alert.get("fvg_aligned", False)):
+        breakdown["breakout_fvg_retest"] = cfg.get("breakout_fvg_retest", 0.15)
+
+    # Zoneリテスト確認ボーナス
+    if bool(alert.get("zone_aligned", False)):
+        breakdown["breakout_zone_retest"] = cfg.get("breakout_zone_retest", 0.10)
+
+    # H1方向一致ボーナス
+    h1_dir = alert.get("h1_direction", "")
+    dir_   = alert.get("direction", "none")
+    if (h1_dir == "bull" and dir_ == "buy") or (h1_dir == "bear" and dir_ == "sell"):
+        breakdown["breakout_h1_aligned"] = cfg.get("breakout_h1_aligned", 0.10)
+
+    # ATR ratio（ボラティリティ確認）
+    atr_r = float(alert.get("atr_ratio", 1.0))
+    if atr_r >= 1.5:
+        breakdown["breakout_atr_surge"] = cfg.get("breakout_atr_surge", 0.10)
+    elif atr_r < 0.8:
+        breakdown["breakout_atr_low"] = cfg.get("breakout_atr_low", -0.10)
+
+    # セッション（BREAKOUT専用・Londonを強めにペナルティ）
+    session_breakout_map = {
+        "london_ny": "breakout_session_london_ny",
+        "london":    "breakout_session_london",
+        "ny":        "breakout_session_ny",
+        "tokyo":     "breakout_session_tokyo",
+        "off":       "breakout_session_off",
+    }
+    key = session_breakout_map.get(alert.get("session", ""))
+    if key:
+        val = cfg.get(key, 0)
+        if val != 0:
+            breakdown[key] = val
+
+    # ニュースペナルティ（TRENDと共通ロジック）
+    _apply_news_penalty(alert, cfg, breakdown)
+
+    return breakdown
+
+
+# ── 個別スコア評価関数（TREND専用） ────────────────────────────
 
 def _apply_choch_score(alert: dict, cfg: dict, breakdown: dict) -> None:
     """CHoCH確認済み → 加点"""
