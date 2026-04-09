@@ -238,6 +238,10 @@ def init_db() -> None:
             bos_confirmed    INTEGER DEFAULT 0,
             ob_aligned       INTEGER DEFAULT 0,
             choch_confirmed  INTEGER DEFAULT 0,
+            sweep_detected   INTEGER DEFAULT 0,
+            h1_adx           REAL DEFAULT NULL,
+            m15_adx          REAL DEFAULT NULL,
+            atr_ratio        REAL DEFAULT NULL,
             outcome          TEXT DEFAULT NULL,
             pnl_usd          REAL DEFAULT NULL
         )""")
@@ -250,6 +254,10 @@ def init_db() -> None:
             "ALTER TABLE scoring_history ADD COLUMN bos_confirmed INTEGER DEFAULT 0",
             "ALTER TABLE scoring_history ADD COLUMN ob_aligned INTEGER DEFAULT 0",
             "ALTER TABLE scoring_history ADD COLUMN choch_confirmed INTEGER DEFAULT 0",
+            "ALTER TABLE scoring_history ADD COLUMN sweep_detected INTEGER DEFAULT 0",
+            "ALTER TABLE scoring_history ADD COLUMN h1_adx REAL DEFAULT NULL",
+            "ALTER TABLE scoring_history ADD COLUMN m15_adx REAL DEFAULT NULL",
+            "ALTER TABLE scoring_history ADD COLUMN atr_ratio REAL DEFAULT NULL",
         ]
         for sql in alter_scoring_history_cols:
             try:

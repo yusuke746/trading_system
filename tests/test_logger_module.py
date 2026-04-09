@@ -39,6 +39,10 @@ def _make_in_memory_conn() -> sqlite3.Connection:
             bos_confirmed    INTEGER DEFAULT 0,
             ob_aligned       INTEGER DEFAULT 0,
             choch_confirmed  INTEGER DEFAULT 0,
+            sweep_detected   INTEGER DEFAULT 0,
+            h1_adx           REAL DEFAULT NULL,
+            m15_adx          REAL DEFAULT NULL,
+            atr_ratio        REAL DEFAULT NULL,
             outcome          TEXT DEFAULT NULL,
             pnl_usd          REAL DEFAULT NULL
         );
@@ -312,6 +316,97 @@ class TestUpdateScoringHistoryOutcome(unittest.TestCase):
         ).fetchone()
         self.assertEqual(row["outcome"], "loss")
         self.assertAlmostEqual(row["pnl_usd"], -50.0)
+
+
+class TestSMCFlagsPersisted(unittest.TestCase):
+    """SMC フラグ（sweep_detected など）が正しく保存されることを検証"""
+
+    def setUp(self):
+        self.conn = _make_in_memory_conn()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def test_sweep_detected_true_saved_as_1(self):
+        """sweep_detected=True を渡すと sweep_detected=1 で保存される"""
+        import logger_module
+
+        alert = {
+            "direction": "buy",
+            "regime": "TREND",
+            "session": "london",
+            "sweep_detected": True,
+        }
+        result = {"score": 0.80, "decision": "approve", "score_breakdown": {}}
+
+        with patch("logger_module.get_connection", return_value=self.conn):
+            rowid = logger_module.log_scoring_history(alert, result)
+
+        row = self.conn.execute(
+            "SELECT sweep_detected FROM scoring_history WHERE id = ?", (rowid,)
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["sweep_detected"], 1)
+
+    def test_sweep_detected_false_saved_as_0(self):
+        """sweep_detected が未指定のとき sweep_detected=0 で保存される"""
+        import logger_module
+
+        alert = {"direction": "sell", "regime": "RANGE", "session": "tokyo"}
+        result = {"score": 0.40, "decision": "wait", "score_breakdown": {}}
+
+        with patch("logger_module.get_connection", return_value=self.conn):
+            rowid = logger_module.log_scoring_history(alert, result)
+
+        row = self.conn.execute(
+            "SELECT sweep_detected FROM scoring_history WHERE id = ?", (rowid,)
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["sweep_detected"], 0)
+
+    def test_adx_and_atr_ratio_persisted(self):
+        """h1_adx, m15_adx, atr_ratio が正しく保存される"""
+        import logger_module
+
+        alert = {
+            "direction": "buy",
+            "regime": "TREND",
+            "session": "ny",
+            "h1_adx": 28.5,
+            "m15_adx": 22.1,
+            "atr_ratio": 1.35,
+        }
+        result = {"score": 0.90, "decision": "approve", "score_breakdown": {}}
+
+        with patch("logger_module.get_connection", return_value=self.conn):
+            rowid = logger_module.log_scoring_history(alert, result)
+
+        row = self.conn.execute(
+            "SELECT h1_adx, m15_adx, atr_ratio FROM scoring_history WHERE id = ?",
+            (rowid,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertAlmostEqual(row["h1_adx"],    28.5, places=5)
+        self.assertAlmostEqual(row["m15_adx"],   22.1, places=5)
+        self.assertAlmostEqual(row["atr_ratio"],  1.35, places=5)
+
+    def test_adx_zero_saved_as_null(self):
+        """h1_adx=0（未設定相当）のとき NULL で保存される"""
+        import logger_module
+
+        alert = {"direction": "buy", "regime": "TREND", "session": "london"}
+        result = {"score": 0.60, "decision": "approve", "score_breakdown": {}}
+
+        with patch("logger_module.get_connection", return_value=self.conn):
+            rowid = logger_module.log_scoring_history(alert, result)
+
+        row = self.conn.execute(
+            "SELECT h1_adx, m15_adx, atr_ratio FROM scoring_history WHERE id = ?",
+            (rowid,),
+        ).fetchone()
+        self.assertIsNone(row["h1_adx"])
+        self.assertIsNone(row["m15_adx"])
+        self.assertIsNone(row["atr_ratio"])
 
 
 # ──────────────────────────────────────────────────────────

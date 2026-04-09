@@ -181,8 +181,10 @@ def log_scoring_history(alert: dict, result: dict) -> int:
         INSERT INTO scoring_history
         (created_at, signal_direction, regime, session,
          total_score, decision, breakdown_json,
-         fvg_aligned, zone_aligned, bos_confirmed, ob_aligned, choch_confirmed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         fvg_aligned, zone_aligned, bos_confirmed, ob_aligned,
+         choch_confirmed, sweep_detected,
+         h1_adx, m15_adx, atr_ratio)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         now_utc(),
         alert.get("direction"),
@@ -196,6 +198,10 @@ def log_scoring_history(alert: dict, result: dict) -> int:
         1 if alert.get("bos_confirmed")   else 0,
         1 if alert.get("ob_aligned")      else 0,
         1 if alert.get("choch_confirmed") else 0,
+        1 if alert.get("sweep_detected")  else 0,
+        float(alert.get("h1_adx",    0)) or None,
+        float(alert.get("m15_adx",   0)) or None,
+        float(alert.get("atr_ratio", 0)) or None,
     ))
     conn.commit()
     return cursor.lastrowid
