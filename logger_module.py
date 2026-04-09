@@ -173,10 +173,11 @@ def update_wait_history(wait_id: int, reeval_count: int,
 
 
 # ─────────────────────────── scoring_history ──────────────
-def log_scoring_history(alert: dict, result: dict) -> None:
+def log_scoring_history(alert: dict, result: dict) -> int:
     import json
     conn = get_connection()
-    conn.execute("""
+    cursor = conn.cursor()
+    cursor.execute("""
         INSERT INTO scoring_history
         (created_at, signal_direction, regime, session,
          total_score, decision, breakdown_json,
@@ -196,6 +197,25 @@ def log_scoring_history(alert: dict, result: dict) -> None:
         1 if alert.get("ob_aligned")      else 0,
         1 if alert.get("choch_confirmed") else 0,
     ))
+    conn.commit()
+    return cursor.lastrowid
+
+
+def update_scoring_history_outcome(
+    scoring_history_id: int,
+    outcome: str,        # 'win' / 'loss' / 'breakeven'
+    pnl_usd: float,
+) -> None:
+    """scoring_history の outcome と pnl_usd を更新する"""
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE scoring_history
+        SET outcome = ?, pnl_usd = ?
+        WHERE id = ?
+        """,
+        (outcome, pnl_usd, scoring_history_id),
+    )
     conn.commit()
 
 

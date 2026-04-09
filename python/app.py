@@ -93,8 +93,9 @@ def webhook():
         decision = result["decision"]
 
         # スコアリング結果をDBに記録（approve/reject/wait 全ケース）
+        scoring_history_id = None
         try:
-            log_scoring_history(alert, result)
+            scoring_history_id = log_scoring_history(alert, result)
         except Exception:
             pass
 
@@ -115,7 +116,7 @@ def webhook():
         # （同期実行するとDiscord HTTP × 3回 + MT5発注でTradingViewの10秒タイムアウトを超えるため）
         threading.Thread(
             target=_process_alert_async,
-            args=(alert, result, decision),
+            args=(alert, result, decision, scoring_history_id),
             daemon=True,
             name="AlertProcessor",
         ).start()
@@ -137,7 +138,8 @@ def webhook():
         return jsonify({"error": str(e)}), 500
 
 
-def _process_alert_async(alert: dict, result: dict, decision: str) -> None:
+def _process_alert_async(alert: dict, result: dict, decision: str,
+                         scoring_history_id: int = None) -> None:
     """
     Webhook応答後にバックグラウンドスレッドで実行される処理。
     Discord通知 + MT5発注を行う。TradingViewのタイムアウトに影響しない。
@@ -219,7 +221,7 @@ def _process_alert_async(alert: dict, result: dict, decision: str) -> None:
             exec_result = execute_order(
                 trigger          = trigger,
                 ai_result        = ai_result,
-                ai_decision_id   = None,
+                ai_decision_id   = scoring_history_id,
                 position_manager = position_manager,
             )
             logger.info("🚀 執行結果: success=%s ticket=%s",
