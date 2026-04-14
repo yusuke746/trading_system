@@ -619,6 +619,10 @@ class TestSMCFlagsPersisted(unittest.TestCase):
                 bos_confirmed    INTEGER DEFAULT 0,
                 ob_aligned       INTEGER DEFAULT 0,
                 choch_confirmed  INTEGER DEFAULT 0,
+                sweep_detected   INTEGER DEFAULT 0,
+                h1_adx           REAL DEFAULT NULL,
+                m15_adx          REAL DEFAULT NULL,
+                atr_ratio        REAL DEFAULT NULL,
                 outcome          TEXT DEFAULT NULL,
                 pnl_usd          REAL DEFAULT NULL
             )
