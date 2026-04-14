@@ -106,3 +106,64 @@ class TestManagePositionRetry:
 
         result = self.pm._manage(pos)
         assert result == "ok"
+
+
+class TestBreakoutRegime:
+    """BREAKOUTレジームでBE・部分決済・トレーリングが無効化されることを確認"""
+
+    def setup_method(self):
+        self.pm = PositionManager()
+
+    def _make_breakout_pos(self, entered_seconds_ago: float = 60) -> ManagedPosition:
+        pos = ManagedPosition(
+            ticket=99999,
+            direction="buy",
+            entry_price=2350.0,
+            lot_size=0.10,
+            sl_price=2340.0,
+            atr_pips=5.0,
+            execution_id=2,
+            regime="BREAKOUT",
+        )
+        pos.entered_at = datetime.now(timezone.utc) - timedelta(seconds=entered_seconds_ago)
+        return pos
+
+    @patch("position_manager.mt5")
+    def test_breakout_does_not_call_apply_be(self, mock_mt5):
+        """BREAKOUTレジームでは unrealized が BE_TRIGGER_ATR_MULT を超えても _apply_be が呼ばれない"""
+        pos = self._make_breakout_pos()
+        # atr_pips=5.0, be_trigger_atr_mult=1.8 → 閾値=9.0
+        # 現在価格 = entry(2350) + 10.0 → unrealized=10.0 > 9.0（閾値超え）
+        tick = MagicMock()
+        tick.bid = 2360.0
+        tick.ask = 2360.5
+        mock_mt5.symbol_info_tick.return_value = tick
+
+        fake_position = MagicMock()
+        mock_mt5.positions_get.return_value = [fake_position]
+
+        with patch.object(self.pm, "_apply_be") as mock_be:
+            result = self.pm._manage(pos)
+
+        assert result == "ok"
+        mock_be.assert_not_called()
+
+    @patch("position_manager.mt5")
+    def test_breakout_does_not_call_partial_close(self, mock_mt5):
+        """BREAKOUTレジームでは unrealized が PARTIAL_TP_ATR_MULT を超えても _partial_close が呼ばれない"""
+        pos = self._make_breakout_pos()
+        # atr_pips=5.0, partial_tp_atr_mult=3.6 → 閾値=18.0
+        # 現在価格 = entry(2350) + 20.0 → unrealized=20.0 > 18.0（閾値超え）
+        tick = MagicMock()
+        tick.bid = 2370.0
+        tick.ask = 2370.5
+        mock_mt5.symbol_info_tick.return_value = tick
+
+        fake_position = MagicMock()
+        mock_mt5.positions_get.return_value = [fake_position]
+
+        with patch.object(self.pm, "_partial_close") as mock_pc:
+            result = self.pm._manage(pos)
+
+        assert result == "ok"
+        mock_pc.assert_not_called()
