@@ -209,6 +209,7 @@ def _process_alert_async(alert: dict, result: dict, decision: str,
                 "price":     float(alert.get("price", 0)),
                 "direction": alert.get("direction", ""),  # "buy" / "sell"
                 "atr5":      float(alert.get("atr5", 0)), # SL用ATR（5M）
+                "regime":    alert.get("regime", "TREND"),  # TREND / REVERSAL / BREAKOUT
             }
             ai_result = {
                 "decision":     "approve",
