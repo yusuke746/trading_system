@@ -196,6 +196,10 @@ class PositionManager:
         # pos.atr_pips は dollar価格単位（executor.pyのatr_dollarを格納）
         atr_value = pos.atr_pips  # すでにdollar価格単位
 
+        # ── BREAKOUTは固定SL/TPのみ（BE・部分決済・トレーリング不要）
+        if pos.regime == "BREAKOUT":
+            return "ok"
+
         # ── STEP1: ブレークイーブン ──────────────────────────
         if not pos.be_applied and unrealized >= atr_value * BE_TRIGGER_ATR_MULT:
             self._apply_be(pos)
