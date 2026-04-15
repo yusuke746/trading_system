@@ -94,7 +94,7 @@ def _check_gates(alert: dict) -> list[str]:
     """
     reasons:   list[str] = []
     regime    = alert.get("regime", "RANGE")
-    h1_adx    = float(alert.get("h1_adx", 0))
+    h1_adx    = float(alert.get("h1_adx", 0) or 0)
     choch     = bool(alert.get("choch_confirmed", False))
     fvg_al    = bool(alert.get("fvg_aligned", False))
     zone_al   = bool(alert.get("zone_aligned", False))
@@ -173,6 +173,15 @@ def _score_breakout(alert: dict, cfg: dict) -> dict:
     戻り値: breakdown dict
     """
     breakdown: dict[str, float] = {}
+
+    # h1_adx が極端に低い場合はペナルティ
+    # h1_adx<20 = H1レベルでトレンドが存在しない → ダマシブレイクになりやすい
+    # h1_adx=None（未設定）は判定不能のためフェイルセーフで免除
+    _h1_adx_raw = alert.get("h1_adx", None)
+    if _h1_adx_raw is not None:
+        h1_adx = float(_h1_adx_raw)
+        if h1_adx < 20:
+            breakdown["breakout_low_adx_penalty"] = cfg.get("breakout_low_adx_penalty", -0.30)
 
     # ベーススコア（ブレイク確認済み）
     breakdown["breakout_base"] = cfg.get("breakout_base", 0.30)

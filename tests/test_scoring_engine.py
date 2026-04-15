@@ -834,6 +834,74 @@ class TestBreakoutScoringDetailed(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────
+# BREAKOUTのh1_adx低値ペナルティテスト
+# ──────────────────────────────────────────────────────────
+
+class TestBreakoutLowAdxPenalty(unittest.TestCase):
+    """h1_adx < 20 のとき breakout_low_adx_penalty が適用される"""
+
+    def test_breakout_low_adx_penalty_applied(self):
+        """BREAKOUT + h1_adx=15（<20）+ session=tokyo → penalty適用でapprove_threshold未達。
+        score = base(0.30) + tokyo(0.15) + penalty(-0.30) = 0.15
+        0.00（wait_threshold）≤ 0.15 < 0.50（approve_threshold）→ wait"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bear",   # h1方向不一致 → breakout_h1_aligned 加点なし
+            h1_adx=15.0,
+            fvg_aligned=False,
+            zone_aligned=False,
+            session="tokyo",
+            atr_ratio=1.2,
+        )
+        result = calculate_score(alert)
+
+        self.assertIn("breakout_low_adx_penalty", result["score_breakdown"])
+        self.assertAlmostEqual(
+            result["score_breakdown"]["breakout_low_adx_penalty"], -0.30, places=4
+        )
+        self.assertAlmostEqual(result["score"], 0.15, places=4)
+        self.assertNotEqual(result["decision"], "approve")
+
+    def test_breakout_high_adx_no_penalty(self):
+        """BREAKOUT + h1_adx=22（>=20）+ session=tokyo → penalty不適用でapprove。
+        score = base(0.30) + tokyo(0.15) + h1_aligned(0.10) = 0.55 >= approve_threshold(0.50)"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bull",
+            h1_adx=22.0,
+            fvg_aligned=False,
+            zone_aligned=False,
+            session="tokyo",
+            atr_ratio=1.2,
+        )
+        result = calculate_score(alert)
+
+        self.assertNotIn("breakout_low_adx_penalty", result["score_breakdown"])
+        self.assertAlmostEqual(result["score"], 0.55, places=4)
+        self.assertEqual(result["decision"], "approve")
+
+    def test_breakout_h1_adx_none_no_penalty(self):
+        """BREAKOUT + h1_adx=None（未設定）→ ペナルティ不適用（フェイルセーフ）"""
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bull",
+            h1_adx=None,
+            fvg_aligned=False,
+            zone_aligned=False,
+            session="tokyo",
+            atr_ratio=1.2,
+        )
+        # h1_adxキーをNoneで上書き（_make_alertがデフォルト値を持つ場合に備える）
+        alert["h1_adx"] = None
+        result = calculate_score(alert)
+
+        self.assertNotIn("breakout_low_adx_penalty", result["score_breakdown"])
+
+
+# ──────────────────────────────────────────────────────────
 # エントリーポイント
 # ──────────────────────────────────────────────────────────
 
