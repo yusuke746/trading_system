@@ -241,6 +241,7 @@ SCORING_CONFIG = {
     "breakout_session_ny":        0.05,
     "breakout_session_tokyo":     0.15,   # PF=1.78（108件）→ 最良
     "breakout_session_off":       0.10,   # PF=1.48（66件）→ 良好
+    "breakout_low_adx_penalty":  -0.30,  # h1_adx<20: H1トレンド不在 → ダマシブレイク対策
 }
 
 # ── 高インパクト経済指標スケジュール（UTC）──────────────────
