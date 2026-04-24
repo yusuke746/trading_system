@@ -167,3 +167,44 @@ class TestBreakoutRegime:
 
         assert result == "ok"
         mock_pc.assert_not_called()
+
+
+class TestTrendNoTrailingAfterPartialClose:
+    """TRENDレジームで部分決済後に _update_trailing が呼ばれないことを確認"""
+
+    def setup_method(self):
+        self.pm = PositionManager()
+
+    def _make_trend_partial_pos(self, entered_seconds_ago: float = 60) -> ManagedPosition:
+        pos = ManagedPosition(
+            ticket=11111,
+            direction="buy",
+            entry_price=2350.0,
+            lot_size=0.10,
+            sl_price=2350.0,
+            atr_pips=5.0,
+            execution_id=3,
+            regime="TREND",
+        )
+        pos.entered_at = datetime.now(timezone.utc) - timedelta(seconds=entered_seconds_ago)
+        pos.be_applied = True
+        pos.partial_closed = True
+        return pos
+
+    @patch("position_manager.mt5")
+    def test_trend_partial_closed_does_not_call_update_trailing(self, mock_mt5):
+        """TRENDレジームで partial_closed=True のとき _update_trailing が呼ばれない"""
+        pos = self._make_trend_partial_pos()
+        tick = MagicMock()
+        tick.bid = 2360.0
+        tick.ask = 2360.5
+        mock_mt5.symbol_info_tick.return_value = tick
+
+        fake_position = MagicMock()
+        mock_mt5.positions_get.return_value = [fake_position]
+
+        with patch.object(self.pm, "_update_trailing") as mock_trail:
+            result = self.pm._manage(pos)
+
+        assert result == "ok"
+        mock_trail.assert_not_called()
