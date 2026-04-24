@@ -68,6 +68,8 @@ class TestBuildOrderParams(unittest.TestCase):
         ai_result = _make_ai_result(order_type, limit_price)
         # get_current_session を London（調整係数 1.0）に固定してテストを決定論的にする
         with patch("executor._get_atr15m", return_value=atr), \
+             patch("executor._get_current_market_price", return_value=None), \
+             patch("executor.MT5_AVAILABLE", False), \
              patch("executor.param_optimizer.get_live_params",
                    return_value=_live_params_default()), \
              patch("executor.get_current_session",
@@ -126,6 +128,8 @@ class TestBuildOrderParams(unittest.TestCase):
         trigger   = _make_trigger("buy", 5200.0)
         ai_result = _make_ai_result()
         with patch("executor._get_atr15m", return_value=atr), \
+             patch("executor._get_current_market_price", return_value=None), \
+             patch("executor.MT5_AVAILABLE", False), \
              patch.dict("executor.SYSTEM_CONFIG", {"atr_sl_multiplier": 2.0}), \
              patch("executor.get_current_session", return_value={"session": "London"}):
             import executor
@@ -172,6 +176,8 @@ class TestBuildOrderParams(unittest.TestCase):
                    "symbol": "XAUUSD", "regime": "TREND"}
         ai_result = _make_ai_result()
         with patch("executor._get_atr15m", return_value=atr), \
+             patch("executor._get_current_market_price", return_value=None), \
+             patch("executor.MT5_AVAILABLE", False), \
              patch("executor.param_optimizer.get_live_params",
                    return_value=_live_params_default()), \
              patch("executor.get_current_session",
@@ -193,6 +199,8 @@ class TestBuildOrderParams(unittest.TestCase):
                      "symbol": "XAUUSD", "regime": "BREAKOUT"}
         ai_result = _make_ai_result()
         with patch("executor._get_atr15m", return_value=atr), \
+             patch("executor._get_current_market_price", return_value=None), \
+             patch("executor.MT5_AVAILABLE", False), \
              patch("executor.param_optimizer.get_live_params",
                    return_value=_live_params_default()), \
              patch("executor.get_current_session",
@@ -219,9 +227,12 @@ class TestBuildOrderParams(unittest.TestCase):
         trigger   = _make_trigger("buy", 5200.0)
         ai_result = _make_ai_result()
         with patch("executor._get_atr15m", return_value=10.0), \
+             patch("executor._get_current_market_price", return_value=None), \
+             patch("executor.MT5_AVAILABLE", False), \
              patch("executor.RISK_PERCENT", 0.0001), \
              patch("executor.param_optimizer.get_live_params",
-                   return_value=_live_params_default()):
+                   return_value=_live_params_default()), \
+             patch("executor.get_current_session", return_value={"session": "London"}):
             params = executor.build_order_params(trigger, ai_result)
         self.assertIsNotNone(params)
         self.assertGreaterEqual(params["lot_size"], 0.01)
@@ -367,7 +378,7 @@ class TestPreExecutionCheck(unittest.TestCase):
         """全チェック通過 → ok=True"""
         import executor
         n, m, r = self._pass_all()
-        with n, m, r:
+        with n, m, r, patch("executor.MT5_AVAILABLE", False):
             result = executor.pre_execution_check("XAUUSD", 5200.0)
         self.assertTrue(result["ok"])
 
@@ -434,7 +445,7 @@ class TestPreExecutionCheck(unittest.TestCase):
         )
         with patch("executor.check_news_filter", side_effect=news_check), \
              patch("executor.full_market_check",  side_effect=mkt_check), \
-             risk_ok:
+             risk_ok, patch("executor.MT5_AVAILABLE", False):
             executor.pre_execution_check("XAUUSD", 5200.0)
 
         self.assertEqual(call_order[0], "news")
@@ -448,6 +459,89 @@ class TestPreExecutionCheck(unittest.TestCase):
             result = executor.pre_execution_check("XAUUSD", 5200.0)
         self.assertTrue(result["ok"])
         self.assertIn("テストモード", result["reason"])
+
+
+# ──────────────────────────────────────────────────────────
+# A-4: 同方向ポジション上限（2件まで）
+# ──────────────────────────────────────────────────────────
+
+_DUMMY_EXEC_PARAMS = {
+    "direction":      "buy",
+    "symbol":         "GOLD#",
+    "order_type":     "market",
+    "lot_size":       0.01,
+    "entry_price":    2350.0,
+    "sl_price":       2340.0,
+    "tp_price":       2380.0,
+    "sl_dollar":      10.0,
+    "atr_dollar":     5.0,
+    "atr_sl_mult":    2.7,
+    "atr_tp_mult":    6.0,
+    "limit_expiry":   None,
+    "ai_decision_id": None,
+}
+
+_EXEC_TRIGGER   = {"symbol": "GOLD#", "direction": "buy", "price": 2350.0, "regime": "TREND"}
+_EXEC_AI_RESULT = {"order_type": "market"}
+
+
+class TestSameDirectionLimit(unittest.TestCase):
+    """A-4: 同方向ポジション上限（最大2件）のテスト"""
+
+    def test_two_same_direction_positions_blocked(self):
+        """同方向ポジションが2件オープン中 → skipped=True を返す"""
+        import executor
+        mock_mt5 = MagicMock()
+        pos1 = MagicMock(); pos1.type = 0  # buy
+        pos2 = MagicMock(); pos2.type = 0  # buy
+        mock_mt5.positions_get.return_value = [pos1, pos2]
+
+        with patch("executor.pre_execution_check",
+                   return_value={"ok": True, "reason": "ok"}), \
+             patch("executor.build_order_params",
+                   return_value=_DUMMY_EXEC_PARAMS), \
+             patch("executor.MT5_AVAILABLE", True), \
+             patch.object(executor, "mt5", mock_mt5, create=True):
+
+            result = executor.execute_order(_EXEC_TRIGGER, _EXEC_AI_RESULT)
+
+        self.assertFalse(result["success"])
+        self.assertTrue(result.get("skipped"))
+        self.assertIn("same_direction_limit", result["reason"])
+
+    def test_one_same_direction_position_not_blocked(self):
+        """同方向ポジションが1件 → ブロックされずに注文が通る"""
+        import executor
+        pos1 = MagicMock(); pos1.type = 0  # buy
+
+        order_result = MagicMock()
+        order_result.retcode = 10009
+        order_result.order = 12345
+
+        mock_mt5 = MagicMock()
+        mock_mt5.positions_get.return_value = [pos1]
+        mock_mt5.TRADE_RETCODE_DONE = 10009
+        mock_mt5.ORDER_TYPE_BUY = 0
+        mock_mt5.ORDER_TYPE_SELL = 1
+        mock_mt5.TRADE_ACTION_DEAL = 1
+        mock_mt5.TRADE_ACTION_PENDING = 5
+        mock_mt5.ORDER_FILLING_IOC = 2
+        mock_mt5.order_send.return_value = order_result
+
+        with patch("executor.pre_execution_check",
+                   return_value={"ok": True, "reason": "ok"}), \
+             patch("executor.build_order_params",
+                   return_value=_DUMMY_EXEC_PARAMS), \
+             patch("executor.MT5_AVAILABLE", True), \
+             patch.object(executor, "mt5", mock_mt5, create=True), \
+             patch("executor.log_execution", return_value=1), \
+             patch("executor.log_event"), \
+             patch("executor.discord_notifier"):
+
+            result = executor.execute_order(_EXEC_TRIGGER, _EXEC_AI_RESULT)
+
+        self.assertNotEqual(result.get("skipped"), True)
+        self.assertTrue(result["success"])
 
 
 # ──────────────────────────────────────────────────────────

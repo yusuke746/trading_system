@@ -186,6 +186,19 @@ def _score_breakout(alert: dict, cfg: dict) -> dict:
     # ベーススコア（ブレイク確認済み）
     breakdown["breakout_base"] = cfg.get("breakout_base", 0.30)
 
+    # SMCフラグ全なし = 相場の根拠ゼロ → ペナルティ
+    # choch/fvg/zone/bos/ob/sweep いずれも未確認
+    no_smc = not any([
+        bool(alert.get("choch_confirmed", False)),
+        bool(alert.get("fvg_aligned",     False)),
+        bool(alert.get("zone_aligned",    False)),
+        bool(alert.get("bos_confirmed",   False)),
+        bool(alert.get("ob_aligned",      False)),
+        bool(alert.get("sweep_detected",  False)),
+    ])
+    if no_smc:
+        breakdown["breakout_no_smc_penalty"] = cfg.get("breakout_no_smc_penalty", -0.20)
+
     # FVGリテスト確認ボーナス
     if bool(alert.get("fvg_aligned", False)):
         breakdown["breakout_fvg_retest"] = cfg.get("breakout_fvg_retest", 0.15)
