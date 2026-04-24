@@ -759,9 +759,10 @@ class TestBreakoutScoringDetailed(unittest.TestCase):
 
     def test_breakout_london_ny_fvg_h1_approve(self):
         """
-        BREAKOUT + session=london_ny + fvg_aligned=True + h1一致 → approve。
-        score = breakout_base(0.30) + breakout_session_london_ny(0.10)
-                + breakout_fvg_retest(0.15) + breakout_h1_aligned(0.10) = 0.65
+        BREAKOUT + session=london_ny + fvg_aligned=True + h1一致 → wait（A-3修正後）。
+        score = breakout_base(0.30) + breakout_session_london_ny(-0.15)
+                + breakout_fvg_retest(0.15) + breakout_h1_aligned(0.10) = 0.40
+        0.00(wait_threshold) <= 0.40 < 0.50(approve_threshold) → wait
         """
         alert = _make_alert(
             regime="BREAKOUT",
@@ -775,11 +776,11 @@ class TestBreakoutScoringDetailed(unittest.TestCase):
         )
         result = calculate_score(alert)
 
-        self.assertEqual(result["decision"], "approve")
+        self.assertEqual(result["decision"], "wait")
         self.assertIn("breakout_fvg_retest",        result["score_breakdown"])
         self.assertIn("breakout_h1_aligned",         result["score_breakdown"])
         self.assertIn("breakout_session_london_ny",  result["score_breakdown"])
-        self.assertAlmostEqual(result["score"], 0.65, places=4)
+        self.assertAlmostEqual(result["score"], 0.40, places=4)
 
     def test_breakout_ny_atr_surge_not_approve(self):
         """
@@ -899,6 +900,109 @@ class TestBreakoutLowAdxPenalty(unittest.TestCase):
         result = calculate_score(alert)
 
         self.assertNotIn("breakout_low_adx_penalty", result["score_breakdown"])
+
+
+# ──────────────────────────────────────────────────────────
+# A-2: SMCフラグ全なしBREAKOUTペナルティ
+# ──────────────────────────────────────────────────────────
+
+class TestBreakoutNoSmcPenalty(unittest.TestCase):
+    """BREAKOUT で SMCフラグが全て False のとき breakout_no_smc_penalty が適用される"""
+
+    def test_all_smc_false_penalty_applied(self):
+        """
+        BREAKOUT + 全SMCフラグFalse → breakout_no_smc_penalty(-0.20)が適用される。
+        score = breakout_base(0.30) + breakout_session_tokyo(0.15)
+                + breakout_h1_aligned(0.10) + penalty(-0.20) = 0.35
+        0.00(wait_threshold) <= 0.35 < 0.50(approve_threshold) → wait
+        """
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bull",
+            h1_adx=30.0,
+            choch_confirmed=False,
+            fvg_aligned=False,
+            zone_aligned=False,
+            bos_confirmed=False,
+            ob_aligned=False,
+            sweep_detected=False,
+            session="tokyo",
+            atr_ratio=1.2,
+        )
+        result = calculate_score(alert)
+
+        self.assertIn("breakout_no_smc_penalty", result["score_breakdown"])
+        self.assertAlmostEqual(
+            result["score_breakdown"]["breakout_no_smc_penalty"],
+            SCORING_CONFIG["breakout_no_smc_penalty"],
+            places=5,
+        )
+        self.assertAlmostEqual(result["score"], 0.35, places=4)
+        self.assertNotEqual(result["decision"], "approve")
+
+    def test_choch_true_no_penalty(self):
+        """
+        BREAKOUT + choch_confirmed=True（SMCフラグ1つあり）
+        → breakout_no_smc_penalty が適用されない。
+        """
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bull",
+            h1_adx=30.0,
+            choch_confirmed=True,
+            fvg_aligned=False,
+            zone_aligned=False,
+            bos_confirmed=False,
+            ob_aligned=False,
+            sweep_detected=False,
+            session="tokyo",
+            atr_ratio=1.2,
+        )
+        result = calculate_score(alert)
+
+        self.assertNotIn("breakout_no_smc_penalty", result["score_breakdown"])
+
+
+# ──────────────────────────────────────────────────────────
+# A-3: london_ny × BREAKOUTペナルティ
+# ──────────────────────────────────────────────────────────
+
+class TestBreakoutLondonNyPenalty(unittest.TestCase):
+    """A-3: breakout_session_london_ny が -0.15 に変更されたことを確認"""
+
+    def test_london_ny_penalty_value(self):
+        """
+        BREAKOUT + session=london_ny → breakout_session_london_ny = -0.15 が適用される。
+        score = breakout_base(0.30) + breakout_h1_aligned(0.10) + london_ny(-0.15) = 0.25
+        0.00(wait_threshold) <= 0.25 < 0.50(approve_threshold) → wait
+        """
+        alert = _make_alert(
+            regime="BREAKOUT",
+            direction="buy",
+            h1_direction="bull",
+            h1_adx=30.0,
+            choch_confirmed=True,  # SMCフラグ1つ → no_smc_penalty なし
+            fvg_aligned=False,
+            zone_aligned=False,
+            bos_confirmed=False,
+            ob_aligned=False,
+            sweep_detected=False,
+            session="london_ny",
+            atr_ratio=1.2,
+        )
+        result = calculate_score(alert)
+
+        self.assertIn("breakout_session_london_ny", result["score_breakdown"])
+        self.assertAlmostEqual(
+            result["score_breakdown"]["breakout_session_london_ny"],
+            SCORING_CONFIG["breakout_session_london_ny"],
+            places=5,
+        )
+        self.assertLess(result["score_breakdown"]["breakout_session_london_ny"], 0)
+        self.assertAlmostEqual(result["score"], 0.25, places=4)
+        self.assertNotEqual(result["decision"], "approve")
 
 
 # ──────────────────────────────────────────────────────────

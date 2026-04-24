@@ -487,6 +487,23 @@ def execute_order(trigger: dict, ai_result: dict,
         log_event("execution_blocked", reason)
         return {"success": False, "ticket": 0, "reason": reason}
 
+    # ── 同方向ポジション上限チェック（最大2件）──────────────
+    if MT5_AVAILABLE:
+        positions = mt5.positions_get(symbol=SYMBOL) or []
+        direction = params["direction"]
+        direction_code = 0 if direction == "buy" else 1  # mt5.ORDER_TYPE_BUY=0, SELL=1
+        same_dir_count = sum(1 for p in positions if p.type == direction_code)
+        if same_dir_count >= 2:
+            logger.info(
+                "同方向ポジション上限到達（%d件）→ エントリースキップ: %s",
+                same_dir_count, direction
+            )
+            return {
+                "success": False,
+                "reason":  f"same_direction_limit: {same_dir_count}件オープン中",
+                "skipped": True,
+            }
+
     # 3. 注文送信
     success, ticket, error_msg = send_order(params)
 

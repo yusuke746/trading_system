@@ -236,12 +236,13 @@ SCORING_CONFIG = {
     "breakout_atr_low":          -0.10,   # ATR ratio < 0.8（ボラ不足）
 
     # BREAKOUTセッション（TRENDより独立して設定）
-    "breakout_session_london_ny": 0.10,
+    "breakout_session_london_ny": -0.15,
     "breakout_session_london":   -0.40,   # PF=0.37（90件）→ 強ペナルティ
     "breakout_session_ny":        0.05,
     "breakout_session_tokyo":     0.15,   # PF=1.78（108件）→ 最良
     "breakout_session_off":       0.10,   # PF=1.48（66件）→ 良好
     "breakout_low_adx_penalty":  -0.30,  # h1_adx<20: H1トレンド不在 → ダマシブレイク対策
+    "breakout_no_smc_penalty":  -0.20,  # SMCフラグ全なし: 相場の根拠ゼロ → ペナルティ
 }
 
 # ── 高インパクト経済指標スケジュール（UTC）──────────────────
