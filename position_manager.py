@@ -208,10 +208,6 @@ class PositionManager:
         if not pos.partial_closed and unrealized >= atr_value * PARTIAL_TP_ATR_MULT:
             self._partial_close(pos, current_price)
 
-        # ── STEP3: トレーリングストップ更新 ───────────────────
-        if pos.partial_closed:
-            self._update_trailing(pos)
-
         return "ok"
 
     def _apply_be(self, pos: ManagedPosition):
