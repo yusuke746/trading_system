@@ -1,4 +1,4 @@
-# AI Trading System v4.8
+# AI Trading System v4.9
 
 **対象:** XAUUSD / GOLD#（XMTrading）　**時間軸:** 5M足　**手法:** SMC（Smart Money Concepts）+ マルチレジーム　**状態:** デモ稼働中
 
@@ -339,7 +339,7 @@ Gate3（SMC条件確認、BREAKOUTはGate3なし）
 | 高インパクトニュース前後 | `news_nearby` | **-0.30** | 最大ペナルティ（スプレッド拡大・急変リスク） |
 | RSIダイバージェンス | `rsi_divergence` | **0.00** | 未実装のため無効化（TODO: Phase 5） |
 
-### BREAKOUTレジーム スコアテーブル（v4.8新設）
+### BREAKOUTレジーム スコアテーブル（v4.9更新）
 
 Gate3廃止の代替として、スコアテーブルで品質管理を行う。
 ベーススコア（0.30）＋各ボーナスの合計が approve_threshold（0.50）を超えると発注。
@@ -352,8 +352,10 @@ Gate3廃止の代替として、スコアテーブルで品質管理を行う。
 | H1方向一致 | `breakout_h1_aligned` | **+0.10** | H1方向とブレイク方向が一致 |
 | ATRサージ（>1.5） | `breakout_atr_surge` | **+0.10** | ボラティリティ拡大でブレイク確度UP |
 | ATR低水準（<0.8） | `breakout_atr_low` | **-0.10** | ボラティリティ不足（ダマシ懸念） |
+| h1_adx < 20（H1トレンド不在） | `breakout_low_adx_penalty` | **-0.30** | ダマシブレイク対策（12件中8敗の実績） |
+| SMCフラグ全なし | `breakout_no_smc_penalty` | **-0.20** | 根拠ゼロのエントリーを排除（5件全敗） |
 | Tokyoセッション | `breakout_session_tokyo` | **+0.15** | アジアブレイクアウトは信頼性高 |
-| London/NYオーバーラップ | `breakout_session_london_ny` | **+0.10** | BREAKOUTには最適セッション |
+| London/NYオーバーラップ | `breakout_session_london_ny` | **-0.15** | 過熱時間帯のダマシブレイク多発 |
 | Offアワーズ | `breakout_session_off` | **+0.10** | 薄商い時のブレイクは継続しやすい |
 | NYセッション | `breakout_session_ny` | **+0.05** | BREAKOUTに有利 |
 | Londonセッション | `breakout_session_london` | **-0.40** | ロンドン早朝ダマシブレイクが多い |
@@ -363,7 +365,7 @@ Gate3廃止の代替として、スコアテーブルで品質管理を行う。
 
 ```
 base(+0.30) + tokyo(+0.15) + h1_aligned(+0.10)                      = 0.55 → approve ✅
-base(+0.30) + fvg_retest(+0.15) + h1_aligned(+0.10) + london_ny(+0.10) = 0.65 → approve ✅
+base(+0.30) + fvg_retest(+0.15) + h1_aligned(+0.10) + london_ny(-0.15) = 0.40 → wait ⏳
 base(+0.30) + london(-0.40)                                          = -0.10 → reject ❌（ロンドン早朝ブレイクは厳しくフィルター）
 ```
 
@@ -388,28 +390,23 @@ bos+sweep(+0.50)                                  = 0.50 → approve ✅
 
 ## 8. エグジットロジック
 
-### TRENDレジーム（3ステップ管理）
+### TRENDレジーム
 
-Optunaで最適化したパラメータ（P2, 2026-03-12）を使用。
-
-| ステップ | トリガー | 内容 |
+| ステップ | 発動条件 | 内容 |
 |---|---|---|
-| 1. ブレークイーブン(BE) | 含み益 = ATR×**1.8** | SLをエントリー価格 + ATR×0.15バッファへ移動 |
-| 2. 部分決済(50%) | 含み益 = ATR×**3.6** | ポジションの50%を利確 |
-| 3. トレーリングストップ | 部分決済後に自動起動 | 高値/安値更新ごとにATR×**1.2**で追随 |
-| 最終TP | ATR×**6.0** | 残り50%全決済（実際にはトレーリングSLで先に決済されることが多い） |
+| STEP1（BE） | 含み益 ≥ ATR×1.8 | SLをエントリー価格付近に移動（損失ゼロ化） |
+| STEP2（部分決済） | 含み益 ≥ ATR×3.6 | 50%部分決済で利益確保 |
+| STEP3 | 部分決済後 | SLはBE位置で固定のまま残り50%をTPまで待機（トレーリングなし） |
 
-### BREAKOUTレジーム（固定SL/TPのみ）
+### BREAKOUTレジーム
 
-BEと部分決済・トレーリングは行わない。
+BE・部分決済・トレーリングは一切行わない。
+MT5の固定SL/TPに完全委任。
 
-| パラメータ | 値 |
+| 項目 | 設定値 |
 |---|---|
 | SL | ATR × 2.7 |
-| TP | ATR × **3.5**（旧×6.0。config: `breakout_tp_multiplier`） |
-
-> v4.6修正済み: TP×6.0は5M足では非現実的なため×3.5に縮小。
-> `config.py` の `breakout_tp_multiplier` で個別管理。
+| TP | ATR × 3.5 |
 
 ### SL共通設定
 
@@ -717,7 +714,7 @@ GOLDの相場時間の6〜8割を占めるレンジ相場では
 
 | 優先度 | 項目 | 詳細 |
 |---|---|---|
-| 🔴 高 | 重複エントリーブロック未実装 | 同方向ポジションが既存の場合でも新規エントリーする。max_positionsでの上限管理のみ |
+| ✅ 解決済み | 同方向重複エントリー上限 | v4.9にて executor.py で同方向ポジション上限2件チェックを実装（send_order前にスキップ） |
 | 🟡 中 | `news_nearby` 動的実装なし | NFP/FOCMの固定ブラックアウトのみ。他の重要経済指標・BOJ・ECBは非対応 |
 | 🟡 中 | `rsi_divergence` 未実装 | Pine Scriptで常にfalse固定。スコアテーブルに0.00で登録済みだが機能していない |
 | 🟡 中 | `position_manager.py` トレーリングSL幅最適化保留 | ATR×1.2の最適化はライブデータ蓄積後に実施予定（シミュレーション手法の限界のため保留） |
@@ -817,7 +814,7 @@ py -m pytest tests/ -v
 | `test_meta_optimizer.py` | 複数件 | メタ最適化 |
 | `test_news_filter.py` | 複数件 | ニュースフィルター・ブラックアウト判定 |
 
-**現在の状態:** 全テスト PASSED（2026-04-09確認済み）
+**現在の状態:** 全テスト PASSED（82件、2026-04-22確認済み）
 
 ---
 
@@ -825,6 +822,7 @@ py -m pytest tests/ -v
 
 | バージョン | 日付 | 主な変更点 |
 |---|---|---|
+| **v4.9** | 2026-04-22 | BREAKOUTのBE・部分決済・トレーリング無効化（固定SL/TP一本化）・TREND部分決済後のトレーリング廃止（SLはBE固定でTP待機）・triggerにregime追加（BREAKOUTが常にTRENDとして登録されていたバグ修正）・BREAKOUTのh1_adx<20にペナルティ-0.30追加（ダマシブレイク対策）・SMCフラグ全なしBREAKOUTにペナルティ-0.20追加・london_ny×BREAKOUTスコアを+0.10→-0.15変更・同方向ポジション上限2件追加（executor.py）・scoring_historyにsweep_detected/h1_adx/m15_adx/atr_ratio列追加・保持期間90→365日・82テストpass |
 | **v4.8** | 2026-04-09 | TREND/BREAKOUTスコアリング完全分離（`_score_trend()`/`_score_breakout()`）・BREAKOUTのGate3廃止→スコアテーブルで品質管理・`executions.ai_decision_id` 常にNULLバグ修正・`scoring_history` outcome/pnl_usd 未更新バグ修正・`scoring_history` SMCフラグ列追加（fvg_aligned/zone_aligned/bos_confirmed/ob_aligned/choch_confirmed）・`update_scoring_history_outcome()` 新設・BREAKOUTスコア設定11キー追加・`test_logger_module.py` 新設（11件）・`test_scoring_engine.py` 40件に拡充 |
 | **v4.7** | 2026-04-04 | param_optimizer無効化（`use_param_optimizer: False`追加）・TREND発注がTP×3.5に固定されていたバグを修正（param_optimizerが動的にatr_tp_multを上書きしていた）・TradingViewのPine Scriptを最新版（bos_timeout=12本・FVG/Zone再タッチ制御）に更新・test_data_structurer/test_llm_structurer/test_news_filterの既存バグ3件修正・全226件テストpass |
 | **v4.6** | 2026-03-28 | FVG/Zone再タッチ制御実装（`bull_fvg_used[]`/`bear_fvg_used[]`/`dem_used[]`/`sup_used[]`）・`bos_timeout` 20→12本・csv_exporterフィールド追加（ob_atr_ratio/bos_age_bars/fvg_size_atr/bos_alert_seq/fvg_aligned/zone_aligned）・セッションスコア再調整（London -0.25/London_NY -0.15/NY +0.10）・BREAKOUT TP×6.0→×3.5（breakout_tp_multiplier新設）・sweep_direction逆転バグ修正・90日CSVデータドリブン検証実施 |
